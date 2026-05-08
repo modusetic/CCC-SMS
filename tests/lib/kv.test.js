@@ -10,8 +10,8 @@ jest.mock('@upstash/redis', () => ({
   }))
 }));
 
-process.env.UPSTASH_REDIS_REST_URL = 'https://test.upstash.io';
-process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token';
+process.env.KV_REST_API_URL = 'https://test.upstash.io';
+process.env.KV_REST_API_TOKEN = 'test-token';
 
 const { getThread, saveThread, deleteThread } = require('../../lib/kv');
 
