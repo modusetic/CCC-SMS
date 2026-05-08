@@ -17,10 +17,26 @@ AI-powered SMS scheduling: sends proposed meeting times via text, negotiates bac
 - Twilio account with a phone number
 - Google Cloud project with Calendar API enabled
 - Gmail account with an App Password
+- Upstash Redis (added via Vercel Marketplace — free tier available)
 
 ## Environment Variables
 
-Copy `.env.example` to `.env.local` and fill in each value:
+The full list of required variables:
+
+| Variable | Source |
+|----------|--------|
+| `TWILIO_ACCOUNT_SID` | Twilio Console |
+| `TWILIO_AUTH_TOKEN` | Twilio Console |
+| `TWILIO_PHONE_NUMBER` | Twilio Console |
+| `GEMINI_API_KEY` | Google AI Studio |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Cloud (minified JSON) |
+| `GOOGLE_CALENDAR_ID` | Google Calendar settings |
+| `GMAIL_USER` | Your Gmail address |
+| `GMAIL_APP_PASSWORD` | Google Account → App Passwords |
+| `KV_REST_API_URL` | Auto-injected by Vercel Upstash integration |
+| `KV_REST_API_TOKEN` | Auto-injected by Vercel Upstash integration |
+
+For local development, copy `.env.example` to `.env.local` and fill in each value:
 
 ```bash
 cp .env.example .env.local
@@ -52,11 +68,17 @@ cp .env.example .env.local
 3. Create an App Password for "Mail" / "Other (custom name)"
 4. Set `GMAIL_USER` (your Gmail address) and `GMAIL_APP_PASSWORD` (the 16-character password)
 
-### Vercel KV Setup
+### Upstash Redis Setup
 
-1. Go to your Vercel dashboard → Storage → Create Database → KV
-2. Connect it to your project
-3. Copy `KV_REST_API_URL` and `KV_REST_API_TOKEN` from the KV dashboard
+This app uses Upstash Redis (via the `@upstash/redis` package) for conversation state.
+
+**On Vercel (recommended):**
+1. Go to your Vercel project → **Integrations** tab
+2. Search for **Upstash Redis** in the Marketplace and add it
+3. Vercel automatically injects `KV_REST_API_URL`, `KV_REST_API_TOKEN`, and related vars — no manual copy needed
+
+**For local development:**
+1. After adding the integration, copy the values from Vercel → Settings → Environment Variables into your `.env.local`
 
 ### Gemini API Key
 
@@ -73,11 +95,15 @@ cp .env.example .env.local
 
 ## Deploy to Production
 
+1. Push to GitHub (already done if you cloned this repo)
+2. Import the repo in the Vercel dashboard and add all environment variables
+3. Deploy:
+
 ```bash
 vercel --prod
 ```
 
-Update your Twilio webhook to the Vercel production URL after deploying.
+4. Update your Twilio webhook to the Vercel production URL after deploying
 
 ## Testing the Flow
 
