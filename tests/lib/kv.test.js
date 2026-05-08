@@ -23,11 +23,11 @@ describe('KV helpers', () => {
     expect(result).toBeNull();
   });
 
-  it('saveThread calls kv.set with phone and thread data', async () => {
+  it('saveThread calls kv.set with phone, thread data, and 7-day TTL', async () => {
     kv.set.mockResolvedValue('OK');
     const thread = { threadId: 'abc-123', status: 'pending' };
     await saveThread('+15551234567', thread);
-    expect(kv.set).toHaveBeenCalledWith('+15551234567', thread);
+    expect(kv.set).toHaveBeenCalledWith('+15551234567', thread, { ex: 60 * 60 * 24 * 7 });
   });
 
   it('deleteThread calls kv.del with phone number', async () => {

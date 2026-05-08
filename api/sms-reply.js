@@ -65,9 +65,10 @@ async function processReply(from, incomingMessage) {
     } else {
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
-      thread.conversationHistory.push({ role: 'model', content: reply });
+      const smsSafeReply = reply.length > 160 ? reply.substring(0, 157) + '...' : reply;
+      thread.conversationHistory.push({ role: 'model', content: smsSafeReply });
       await saveThread(from, thread);
-      await sendSms(from, reply);
+      await sendSms(from, smsSafeReply);
     }
   } catch (err) {
     console.error('[sms-reply] Error processing reply:', err.message);
