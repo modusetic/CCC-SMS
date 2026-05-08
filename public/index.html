@@ -23,7 +23,7 @@
       box-shadow: 0 2px 16px rgba(0,0,0,0.08);
       padding: 40px;
       width: 100%;
-      max-width: 520px;
+      max-width: 540px;
     }
 
     h1 {
@@ -48,9 +48,7 @@
       margin: 20px 0 10px;
     }
 
-    .field {
-      margin-bottom: 14px;
-    }
+    .field { margin-bottom: 14px; }
 
     label {
       display: block;
@@ -62,61 +60,67 @@
 
     input[type="text"],
     input[type="tel"],
-    input[type="email"] {
+    input[type="email"],
+    input[type="date"],
+    select {
       width: 100%;
       padding: 9px 12px;
       border: 1px solid #ddd;
       border-radius: 7px;
       font-size: 0.9rem;
       color: #111;
+      background: #fff;
       outline: none;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      appearance: none;
+      -webkit-appearance: none;
     }
 
-    input:focus {
+    input:focus, select:focus {
       border-color: #2563eb;
       box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+
+    .select-wrap {
+      position: relative;
+    }
+
+    .select-wrap::after {
+      content: "▾";
+      position: absolute;
+      right: 11px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #888;
+      pointer-events: none;
+      font-size: 0.85rem;
     }
 
     .times-list {
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      margin-bottom: 8px;
+      gap: 10px;
+      margin-bottom: 10px;
     }
 
     .time-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
       gap: 8px;
       align-items: center;
-    }
-
-    .time-row input {
-      flex: 1;
-      padding: 9px 12px;
-      border: 1px solid #ddd;
-      border-radius: 7px;
-      font-size: 0.9rem;
-      color: #111;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-
-    .time-row input:focus {
-      border-color: #2563eb;
-      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
     }
 
     .remove-btn {
       background: none;
       border: none;
-      color: #aaa;
-      font-size: 1.2rem;
+      color: #bbb;
+      font-size: 1.25rem;
       cursor: pointer;
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: 4px;
       line-height: 1;
       transition: color 0.15s;
+      flex-shrink: 0;
     }
 
     .remove-btn:hover { color: #e53e3e; }
@@ -133,15 +137,12 @@
       transition: border-color 0.15s, color 0.15s;
     }
 
-    .add-btn:hover {
-      border-color: #2563eb;
-      color: #2563eb;
-    }
+    .add-btn:hover { border-color: #2563eb; color: #2563eb; }
 
     .hint {
       font-size: 0.78rem;
       color: #999;
-      margin-top: 5px;
+      margin-top: 6px;
     }
 
     .divider {
@@ -161,7 +162,7 @@
       font-weight: 600;
       cursor: pointer;
       transition: background 0.15s;
-      margin-top: 8px;
+      margin-top: 10px;
     }
 
     .submit-btn:hover { background: #1d4ed8; }
@@ -176,17 +177,8 @@
       font-weight: 500;
     }
 
-    .toast.success {
-      background: #ecfdf5;
-      color: #065f46;
-      border: 1px solid #6ee7b7;
-    }
-
-    .toast.error {
-      background: #fef2f2;
-      color: #991b1b;
-      border: 1px solid #fca5a5;
-    }
+    .toast.success { background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
+    .toast.error   { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
   </style>
 </head>
 <body>
@@ -225,15 +217,9 @@
     <hr class="divider" />
     <div class="section-label">Proposed Times</div>
 
-    <div class="times-list" id="timesList">
-      <div class="time-row">
-        <input type="text" placeholder="Monday May 12 at 2pm" />
-        <button type="button" class="remove-btn" onclick="removeTime(this)" title="Remove">×</button>
-      </div>
-    </div>
+    <div class="times-list" id="timesList"></div>
 
-    <button type="button" class="add-btn" onclick="addTime()">+ Add time slot</button>
-    <p class="hint">Plain English is fine — e.g. "Tuesday May 13 at 10am"</p>
+    <button type="button" class="add-btn" id="addBtn">+ Add time slot</button>
 
     <button type="submit" class="submit-btn" id="submitBtn">Send scheduling SMS</button>
 
@@ -242,24 +228,84 @@
 </div>
 
 <script>
-  function addTime() {
-    const list = document.getElementById('timesList');
+  // ── Time options: 7:00 AM – 8:00 PM in 30-min increments ─────────────────
+  const TIME_OPTIONS = (() => {
+    const opts = [];
+    for (let h = 7; h <= 20; h++) {
+      for (const m of [0, 30]) {
+        if (h === 20 && m === 30) break;
+        const period = h < 12 ? 'AM' : 'PM';
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        const label = m === 0 ? `${h12}:00 ${period}` : `${h12}:30 ${period}`;
+        const value = `${String(h).padStart(2,'0')}:${m === 0 ? '00' : '30'}`;
+        opts.push({ label, value });
+      }
+    }
+    return opts;
+  })();
+
+  function timeOptionsHTML(selectedValue) {
+    return TIME_OPTIONS.map(o =>
+      `<option value="${o.value}"${o.value === selectedValue ? ' selected' : ''}>${o.label}</option>`
+    ).join('');
+  }
+
+  // Default date = today, default time = next upcoming 30-min slot
+  function defaultDate() {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  function defaultTime() {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes() < 30 ? 30 : 0;
+    const hAdj = m === 0 ? h + 1 : h;
+    if (hAdj > 20) return '09:00';
+    return `${String(hAdj).padStart(2,'0')}:${m === 0 ? '00' : '30'}`;
+  }
+
+  function buildRow(date = defaultDate(), time = defaultTime()) {
     const row = document.createElement('div');
     row.className = 'time-row';
     row.innerHTML = `
-      <input type="text" placeholder="Wednesday May 14 at 3pm" />
-      <button type="button" class="remove-btn" onclick="removeTime(this)" title="Remove">×</button>
+      <input type="date" value="${date}" required />
+      <div class="select-wrap">
+        <select>${timeOptionsHTML(time)}</select>
+      </div>
+      <button type="button" class="remove-btn" title="Remove">×</button>
     `;
-    list.appendChild(row);
-    row.querySelector('input').focus();
+    row.querySelector('.remove-btn').addEventListener('click', () => removeRow(row));
+    return row;
   }
 
-  function removeTime(btn) {
-    const list = document.getElementById('timesList');
-    if (list.children.length === 1) return; // keep at least one
-    btn.closest('.time-row').remove();
+  function removeRow(row) {
+    if (document.getElementById('timesList').children.length === 1) return;
+    row.remove();
   }
 
+  function formatSlot(dateVal, timeVal) {
+    // dateVal = "YYYY-MM-DD", timeVal = "HH:MM"
+    // Parse as local date to avoid UTC offset shifting the day
+    const [y, mo, d] = dateVal.split('-').map(Number);
+    const [h, m] = timeVal.split(':').map(Number);
+    const dt = new Date(y, mo - 1, d, h, m);
+    const dayName  = dt.toLocaleDateString('en-US', { weekday: 'long' });
+    const monthName = dt.toLocaleDateString('en-US', { month: 'long' });
+    const day = dt.getDate();
+    const period = h < 12 ? 'am' : 'pm';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    const minStr = m === 0 ? '' : `:${String(m).padStart(2,'0')}`;
+    return `${dayName} ${monthName} ${day} at ${h12}${minStr}${period}`;
+    // e.g. "Monday May 12 at 2pm" or "Tuesday May 13 at 10:30am"
+  }
+
+  // Init with one row
+  document.getElementById('timesList').appendChild(buildRow());
+  document.getElementById('addBtn').addEventListener('click', () => {
+    document.getElementById('timesList').appendChild(buildRow());
+  });
+
+  // ── Submit ────────────────────────────────────────────────────────────────
   function showToast(message, type) {
     const toast = document.getElementById('toast');
     toast.textContent = message;
@@ -270,19 +316,16 @@
   document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const proposedTimes = Array.from(document.querySelectorAll('#timesList input'))
-      .map(i => i.value.trim())
-      .filter(Boolean);
-
-    if (proposedTimes.length === 0) {
-      showToast('Please add at least one proposed time.', 'error');
-      return;
-    }
+    const proposedTimes = Array.from(document.getElementById('timesList').children).map(row => {
+      const date = row.querySelector('input[type="date"]').value;
+      const time = row.querySelector('select').value;
+      return formatSlot(date, time);
+    });
 
     const payload = {
-      contactName: document.getElementById('contactName').value.trim(),
-      contactPhone: document.getElementById('contactPhone').value.trim(),
-      organizerName: document.getElementById('organizerName').value.trim(),
+      contactName:    document.getElementById('contactName').value.trim(),
+      contactPhone:   document.getElementById('contactPhone').value.trim(),
+      organizerName:  document.getElementById('organizerName').value.trim(),
       organizerEmail: document.getElementById('organizerEmail').value.trim(),
       proposedTimes
     };
@@ -303,11 +346,9 @@
       if (res.ok) {
         showToast(`SMS sent! Thread ID: ${data.threadId}`, 'success');
         e.target.reset();
-        document.getElementById('timesList').innerHTML = `
-          <div class="time-row">
-            <input type="text" placeholder="Monday May 12 at 2pm" />
-            <button type="button" class="remove-btn" onclick="removeTime(this)" title="Remove">×</button>
-          </div>`;
+        const list = document.getElementById('timesList');
+        list.innerHTML = '';
+        list.appendChild(buildRow());
       } else {
         showToast(data.error || 'Something went wrong. Please try again.', 'error');
       }
