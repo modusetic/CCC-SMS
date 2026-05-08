@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMS Scheduling — Initiate Request</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f5f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+      padding: 40px;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: #111;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: #666;
+      margin-bottom: 28px;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #888;
+      margin: 20px 0 10px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 5px;
+    }
+
+    input[type="text"],
+    input[type="tel"],
+    input[type="email"] {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid #ddd;
+      border-radius: 7px;
+      font-size: 0.9rem;
+      color: #111;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+
+    .times-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .time-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .time-row input {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1px solid #ddd;
+      border-radius: 7px;
+      font-size: 0.9rem;
+      color: #111;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .time-row input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+
+    .remove-btn {
+      background: none;
+      border: none;
+      color: #aaa;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+
+    .remove-btn:hover { color: #e53e3e; }
+
+    .add-btn {
+      background: none;
+      border: 1px dashed #ccc;
+      border-radius: 7px;
+      color: #555;
+      font-size: 0.85rem;
+      padding: 8px 14px;
+      cursor: pointer;
+      width: 100%;
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .add-btn:hover {
+      border-color: #2563eb;
+      color: #2563eb;
+    }
+
+    .hint {
+      font-size: 0.78rem;
+      color: #999;
+      margin-top: 5px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #eee;
+      margin: 24px 0;
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 11px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-top: 8px;
+    }
+
+    .submit-btn:hover { background: #1d4ed8; }
+    .submit-btn:disabled { background: #93b4f5; cursor: not-allowed; }
+
+    .toast {
+      display: none;
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .toast.success {
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+
+    .toast.error {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>SMS Scheduling</h1>
+  <p class="subtitle">Send an AI-powered scheduling request via SMS</p>
+
+  <form id="scheduleForm">
+    <div class="section-label">Contact</div>
+
+    <div class="field">
+      <label for="contactName">Name</label>
+      <input type="text" id="contactName" placeholder="Jane Smith" required />
+    </div>
+
+    <div class="field">
+      <label for="contactPhone">Phone number</label>
+      <input type="tel" id="contactPhone" placeholder="+15551234567" required />
+      <p class="hint">E.164 format — e.g. +15551234567</p>
+    </div>
+
+    <hr class="divider" />
+    <div class="section-label">Organizer</div>
+
+    <div class="field">
+      <label for="organizerName">Name</label>
+      <input type="text" id="organizerName" placeholder="Alex Johnson" required />
+    </div>
+
+    <div class="field">
+      <label for="organizerEmail">Email</label>
+      <input type="email" id="organizerEmail" placeholder="alex@example.com" required />
+    </div>
+
+    <hr class="divider" />
+    <div class="section-label">Proposed Times</div>
+
+    <div class="times-list" id="timesList">
+      <div class="time-row">
+        <input type="text" placeholder="Monday May 12 at 2pm" />
+        <button type="button" class="remove-btn" onclick="removeTime(this)" title="Remove">×</button>
+      </div>
+    </div>
+
+    <button type="button" class="add-btn" onclick="addTime()">+ Add time slot</button>
+    <p class="hint">Plain English is fine — e.g. "Tuesday May 13 at 10am"</p>
+
+    <button type="submit" class="submit-btn" id="submitBtn">Send scheduling SMS</button>
+
+    <div class="toast" id="toast"></div>
+  </form>
+</div>
+
+<script>
+  function addTime() {
+    const list = document.getElementById('timesList');
+    const row = document.createElement('div');
+    row.className = 'time-row';
+    row.innerHTML = `
+      <input type="text" placeholder="Wednesday May 14 at 3pm" />
+      <button type="button" class="remove-btn" onclick="removeTime(this)" title="Remove">×</button>
+    `;
+    list.appendChild(row);
+    row.querySelector('input').focus();
+  }
+
+  function removeTime(btn) {
+    const list = document.getElementById('timesList');
+    if (list.children.length === 1) return; // keep at least one
+    btn.closest('.time-row').remove();
+  }
+
+  function showToast(message, type) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `toast ${type}`;
+    toast.style.display = 'block';
+  }
+
+  document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const proposedTimes = Array.from(document.querySelectorAll('#timesList input'))
+      .map(i => i.value.trim())
+      .filter(Boolean);
+
+    if (proposedTimes.length === 0) {
+      showToast('Please add at least one proposed time.', 'error');
+      return;
+    }
+
+    const payload = {
+      contactName: document.getElementById('contactName').value.trim(),
+      contactPhone: document.getElementById('contactPhone').value.trim(),
+      organizerName: document.getElementById('organizerName').value.trim(),
+      organizerEmail: document.getElementById('organizerEmail').value.trim(),
+      proposedTimes
+    };
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+
+    try {
+      const res = await fetch('/api/initiate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        showToast(`SMS sent! Thread ID: ${data.threadId}`, 'success');
+        e.target.reset();
+        document.getElementById('timesList').innerHTML = `
+          <div class="time-row">
+            <input type="text" placeholder="Monday May 12 at 2pm" />
+            <button type="button" class="remove-btn" onclick="removeTime(this)" title="Remove">×</button>
+          </div>`;
+      } else {
+        showToast(data.error || 'Something went wrong. Please try again.', 'error');
+      }
+    } catch (err) {
+      showToast('Could not reach the server. Check your connection.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send scheduling SMS';
+    }
+  });
+</script>
+
+</body>
+</html>
