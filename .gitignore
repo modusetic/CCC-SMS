@@ -3,5 +3,5 @@ node_modules/
 .env.local
 .env*.local
 .vercel
-.worktrees/
+.worktrees
 coverage/
