@@ -27,7 +27,7 @@ describe('getNextReply', () => {
     await getNextReply(mockThread, 'Monday works!');
     expect(mockGetGenerativeModel).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         systemInstruction: expect.stringContaining('Alice')
       })
     );
