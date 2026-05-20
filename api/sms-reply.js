@@ -1,6 +1,5 @@
 const express = require('express');
 const { getThread, saveThread } = require('../lib/kv');
-const { sendSms } = require('../lib/twilio');
 const { getNextReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
@@ -9,28 +8,31 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-app.post('/api/sms-reply', (req, res) => {
+function twimlReply(message) {
+  const safe = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<Response><Message>${safe}</Message></Response>`;
+}
+
+app.post('/api/sms-reply', async (req, res) => {
   res.set('Content-Type', 'text/xml');
-  res.send('<Response></Response>');
 
   const from = req.body.From;
   const incomingMessage = req.body.Body;
 
-  processReply(from, incomingMessage).catch(err => {
-    console.error('[sms-reply] Unhandled error:', err.message);
-  });
-});
-
-async function processReply(from, incomingMessage) {
-  const thread = await getThread(from);
+  let thread;
+  try {
+    thread = await getThread(from);
+  } catch (err) {
+    console.error('[sms-reply] getThread error:', err.message);
+    return res.send('<Response></Response>');
+  }
 
   if (!thread) {
-    await sendSms(from, "Sorry, I don't have an active scheduling request for this number.");
-    return;
+    return res.send(twimlReply("Sorry, I don't have an active scheduling request for this number."));
   }
 
   if (thread.status === 'confirmed') {
-    return;
+    return res.send('<Response></Response>');
   }
 
   try {
@@ -39,9 +41,7 @@ async function processReply(from, incomingMessage) {
     let parsed = null;
     try {
       parsed = JSON.parse(reply.trim());
-    } catch (_) {
-      // Conversational reply, not a JSON confirmation
-    }
+    } catch (_) {}
 
     if (parsed?.status === 'confirmed' && parsed?.datetime) {
       thread.status = 'confirmed';
@@ -58,21 +58,22 @@ async function processReply(from, incomingMessage) {
       );
 
       const confirmMsg = `Your meeting with ${thread.organizerName} is confirmed! You'll receive details soon.`;
-      await sendSms(from, confirmMsg);
-
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
       await saveThread(from, thread);
+
+      return res.send(twimlReply(confirmMsg));
     } else {
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
       const smsSafeReply = reply.length > 160 ? reply.substring(0, 157) + '...' : reply;
       thread.conversationHistory.push({ role: 'model', content: smsSafeReply });
       await saveThread(from, thread);
-      await sendSms(from, smsSafeReply);
+      return res.send(twimlReply(smsSafeReply));
     }
   } catch (err) {
     console.error('[sms-reply] Error processing reply:', err.message);
+    return res.send('<Response></Response>');
   }
-}
+});
 
 module.exports = app;

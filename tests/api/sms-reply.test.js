@@ -20,10 +20,6 @@ jest.mock('../../lib/kv', () => ({
   saveThread: jest.fn().mockResolvedValue(undefined)
 }));
 
-jest.mock('../../lib/twilio', () => ({
-  sendSms: jest.fn().mockResolvedValue('SM123')
-}));
-
 jest.mock('../../lib/gemini', () => ({
   getNextReply: jest.fn()
 }));
@@ -37,7 +33,6 @@ jest.mock('../../lib/email', () => ({
 }));
 
 const { getThread } = require('../../lib/kv');
-const { sendSms } = require('../../lib/twilio');
 const { getNextReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
@@ -46,10 +41,8 @@ const app = require('../../api/sms-reply');
 const twilioPost = (body) =>
   request(app).post('/api/sms-reply').type('form').send(body);
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
 describe('POST /api/sms-reply', () => {
-  it('responds immediately with empty TwiML and status 200', async () => {
+  it('responds with TwiML and status 200', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('Tuesday at 10am works too!');
     const res = await twilioPost({ From: '+15551234567', Body: 'Monday works!' });
@@ -57,29 +50,23 @@ describe('POST /api/sms-reply', () => {
     expect(res.text).toContain('<Response>');
   });
 
-  it('sends polite message when no thread found for that number', async () => {
+  it('returns polite TwiML message when no thread found for that number', async () => {
     getThread.mockResolvedValue(null);
-    await twilioPost({ From: '+15559999999', Body: 'Hello' });
-    await wait(50);
-    expect(sendSms).toHaveBeenCalledWith(
-      '+15559999999',
-      expect.stringContaining("don't have an active scheduling request")
-    );
+    const res = await twilioPost({ From: '+15559999999', Body: 'Hello' });
+    expect(res.text).toContain("don't have an active scheduling request");
   });
 
-  it('sends Gemini reply as SMS for a conversational (non-JSON) response', async () => {
+  it('returns Gemini reply in TwiML for a conversational (non-JSON) response', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('How about Wednesday at 3pm?');
-    await twilioPost({ From: '+15551234567', Body: 'Monday does not work' });
-    await wait(50);
-    expect(sendSms).toHaveBeenCalledWith('+15551234567', 'How about Wednesday at 3pm?');
+    const res = await twilioPost({ From: '+15551234567', Body: 'Monday does not work' });
+    expect(res.text).toContain('How about Wednesday at 3pm?');
   });
 
   it('books calendar event when Gemini returns confirmed JSON', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    await wait(50);
     expect(bookCalendarEvent).toHaveBeenCalledWith(
       '2026-05-12T14:00:00',
       'Bob',
@@ -91,7 +78,6 @@ describe('POST /api/sms-reply', () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    await wait(50);
     expect(sendOrganizerEmail).toHaveBeenCalledWith(
       'alice@example.com',
       'Alice',
@@ -100,14 +86,10 @@ describe('POST /api/sms-reply', () => {
     );
   });
 
-  it('sends confirmation SMS to contact after booking', async () => {
+  it('returns confirmation TwiML to contact after booking', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
-    await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    await wait(50);
-    expect(sendSms).toHaveBeenCalledWith(
-      '+15551234567',
-      expect.stringContaining('confirmed')
-    );
+    const res = await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(res.text).toContain('confirmed');
   });
 });
