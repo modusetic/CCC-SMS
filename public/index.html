@@ -48,6 +48,23 @@
       margin: 20px 0 10px;
     }
 
+    .section-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 20px 0 10px;
+    }
+
+    .section-label-row .section-label { margin: 0; }
+
+    .optional-badge {
+      font-size: 0.68rem;
+      color: #aaa;
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
     .field { margin-bottom: 14px; }
 
     label {
@@ -139,6 +156,16 @@
 
     .add-btn:hover { border-color: #2563eb; color: #2563eb; }
 
+    .backup-section {
+      margin-top: 4px;
+    }
+
+    .backup-empty {
+      font-size: 0.82rem;
+      color: #bbb;
+      margin-bottom: 10px;
+    }
+
     .hint {
       font-size: 0.78rem;
       color: #999;
@@ -214,12 +241,29 @@
       <input type="email" id="organizerEmail" placeholder="alex@example.com" required />
     </div>
 
+    <div class="field">
+      <label for="organizerPhone">Phone number <span style="font-weight:400;color:#999">(optional — required for organizer approval)</span></label>
+      <input type="tel" id="organizerPhone" placeholder="+15559876543" />
+      <p class="hint">If provided, the organizer will receive an SMS when the contact suggests an alternative time.</p>
+    </div>
+
     <hr class="divider" />
     <div class="section-label">Proposed Times</div>
 
     <div class="times-list" id="timesList"></div>
-
     <button type="button" class="add-btn" id="addBtn">+ Add time slot</button>
+
+    <hr class="divider" />
+    <div class="section-label-row">
+      <span class="section-label">Director Backup Times</span>
+      <span class="optional-badge">optional</span>
+    </div>
+    <p class="hint" style="margin-bottom:10px">Pre-approved alternatives the AI can offer if the contact declines. If the contact suggests one of these, it's auto-confirmed without pinging the director.</p>
+
+    <div class="backup-section">
+      <div class="times-list" id="backupTimesList"></div>
+      <button type="button" class="add-btn" id="addBackupBtn">+ Add backup time slot</button>
+    </div>
 
     <button type="submit" class="submit-btn" id="submitBtn">Send scheduling SMS</button>
 
@@ -250,7 +294,6 @@
     ).join('');
   }
 
-  // Default date = today, default time = next upcoming 30-min slot
   function defaultDate() {
     return new Date().toISOString().split('T')[0];
   }
@@ -264,7 +307,7 @@
     return `${String(hAdj).padStart(2,'0')}:${m === 0 ? '00' : '30'}`;
   }
 
-  function buildRow(date = defaultDate(), time = defaultTime()) {
+  function buildRow(listId, date = defaultDate(), time = defaultTime()) {
     const row = document.createElement('div');
     row.className = 'time-row';
     row.innerHTML = `
@@ -274,35 +317,45 @@
       </div>
       <button type="button" class="remove-btn" title="Remove">×</button>
     `;
-    row.querySelector('.remove-btn').addEventListener('click', () => removeRow(row));
+    row.querySelector('.remove-btn').addEventListener('click', () => {
+      // Backup list allows removing all rows; proposed times keep at least 1
+      const list = document.getElementById(listId);
+      if (listId === 'timesList' && list.children.length === 1) return;
+      row.remove();
+    });
     return row;
   }
 
-  function removeRow(row) {
-    if (document.getElementById('timesList').children.length === 1) return;
-    row.remove();
-  }
-
   function formatSlot(dateVal, timeVal) {
-    // dateVal = "YYYY-MM-DD", timeVal = "HH:MM"
-    // Parse as local date to avoid UTC offset shifting the day
     const [y, mo, d] = dateVal.split('-').map(Number);
     const [h, m] = timeVal.split(':').map(Number);
     const dt = new Date(y, mo - 1, d, h, m);
-    const dayName  = dt.toLocaleDateString('en-US', { weekday: 'long' });
+    const dayName   = dt.toLocaleDateString('en-US', { weekday: 'long' });
     const monthName = dt.toLocaleDateString('en-US', { month: 'long' });
     const day = dt.getDate();
     const period = h < 12 ? 'am' : 'pm';
     const h12 = h % 12 === 0 ? 12 : h % 12;
     const minStr = m === 0 ? '' : `:${String(m).padStart(2,'0')}`;
     return `${dayName} ${monthName} ${day} at ${h12}${minStr}${period}`;
-    // e.g. "Monday May 12 at 2pm" or "Tuesday May 13 at 10:30am"
   }
 
-  // Init with one row
-  document.getElementById('timesList').appendChild(buildRow());
+  function collectSlots(listId) {
+    return Array.from(document.getElementById(listId).children).map(row => {
+      const date = row.querySelector('input[type="date"]').value;
+      const time = row.querySelector('select').value;
+      return formatSlot(date, time);
+    });
+  }
+
+  // Init proposed times with one row
+  document.getElementById('timesList').appendChild(buildRow('timesList'));
   document.getElementById('addBtn').addEventListener('click', () => {
-    document.getElementById('timesList').appendChild(buildRow());
+    document.getElementById('timesList').appendChild(buildRow('timesList'));
+  });
+
+  // Backup times start empty; user adds rows manually
+  document.getElementById('addBackupBtn').addEventListener('click', () => {
+    document.getElementById('backupTimesList').appendChild(buildRow('backupTimesList'));
   });
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -316,18 +369,19 @@
   document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const proposedTimes = Array.from(document.getElementById('timesList').children).map(row => {
-      const date = row.querySelector('input[type="date"]').value;
-      const time = row.querySelector('select').value;
-      return formatSlot(date, time);
-    });
+    const proposedTimes = collectSlots('timesList');
+    const backupSlots   = collectSlots('backupTimesList');
+
+    const organizerPhone = document.getElementById('organizerPhone').value.trim();
 
     const payload = {
       contactName:    document.getElementById('contactName').value.trim(),
       contactPhone:   document.getElementById('contactPhone').value.trim(),
       organizerName:  document.getElementById('organizerName').value.trim(),
       organizerEmail: document.getElementById('organizerEmail').value.trim(),
-      proposedTimes
+      proposedTimes,
+      ...(organizerPhone && { organizerPhone }),
+      ...(backupSlots.length > 0 && { directorAlternatives: backupSlots })
     };
 
     const btn = document.getElementById('submitBtn');
@@ -348,7 +402,8 @@
         e.target.reset();
         const list = document.getElementById('timesList');
         list.innerHTML = '';
-        list.appendChild(buildRow());
+        list.appendChild(buildRow('timesList'));
+        document.getElementById('backupTimesList').innerHTML = '';
       } else {
         showToast(data.error || 'Something went wrong. Please try again.', 'error');
       }

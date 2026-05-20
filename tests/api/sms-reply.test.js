@@ -6,8 +6,13 @@ const baseThread = {
   contactPhone: '+15551234567',
   organizerName: 'Alice',
   organizerEmail: 'alice@example.com',
+  organizerPhone: '+15550009999',
   proposedTimes: ['Monday at 2pm'],
+  directorAlternatives: [],
   status: 'pending',
+  waitingForOrganizerApproval: false,
+  pendingContactSuggestion: null,
+  pendingContactDatetime: null,
   attempts: 0,
   conversationHistory: [
     { role: 'model', content: 'Hi Bob! Which time works?' }
@@ -18,6 +23,10 @@ const baseThread = {
 jest.mock('../../lib/kv', () => ({
   getThread: jest.fn(),
   saveThread: jest.fn().mockResolvedValue(undefined)
+}));
+
+jest.mock('../../lib/twilio', () => ({
+  sendSms: jest.fn().mockResolvedValue('SM123')
 }));
 
 jest.mock('../../lib/gemini', () => ({
@@ -33,6 +42,7 @@ jest.mock('../../lib/email', () => ({
 }));
 
 const { getThread } = require('../../lib/kv');
+const { sendSms } = require('../../lib/twilio');
 const { getNextReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
@@ -41,7 +51,7 @@ const app = require('../../api/sms-reply');
 const twilioPost = (body) =>
   request(app).post('/api/sms-reply').type('form').send(body);
 
-describe('POST /api/sms-reply', () => {
+describe('POST /api/sms-reply — contact messages', () => {
   it('responds with TwiML and status 200', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('Tuesday at 10am works too!');
@@ -50,40 +60,25 @@ describe('POST /api/sms-reply', () => {
     expect(res.text).toContain('<Response>');
   });
 
-  it('returns polite TwiML message when no thread found for that number', async () => {
+  it('returns polite TwiML message when no thread found', async () => {
     getThread.mockResolvedValue(null);
     const res = await twilioPost({ From: '+15559999999', Body: 'Hello' });
     expect(res.text).toContain("don't have an active scheduling request");
   });
 
-  it('returns Gemini reply in TwiML for a conversational (non-JSON) response', async () => {
+  it('returns Gemini reply in TwiML for a conversational response', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('How about Wednesday at 3pm?');
     const res = await twilioPost({ From: '+15551234567', Body: 'Monday does not work' });
     expect(res.text).toContain('How about Wednesday at 3pm?');
   });
 
-  it('books calendar event when Gemini returns confirmed JSON', async () => {
+  it('books calendar and emails organizer when Gemini returns confirmed JSON', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    expect(bookCalendarEvent).toHaveBeenCalledWith(
-      '2026-05-12T14:00:00',
-      'Bob',
-      'alice@example.com'
-    );
-  });
-
-  it('emails organizer when Gemini returns confirmed JSON', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
-    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
-    await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    expect(sendOrganizerEmail).toHaveBeenCalledWith(
-      'alice@example.com',
-      'Alice',
-      'Bob',
-      '2026-05-12T14:00:00'
-    );
+    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-12T14:00:00', 'Bob', 'alice@example.com');
+    expect(sendOrganizerEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Bob', '2026-05-12T14:00:00');
   });
 
   it('returns confirmation TwiML to contact after booking', async () => {
@@ -91,5 +86,53 @@ describe('POST /api/sms-reply', () => {
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     const res = await twilioPost({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(res.text).toContain('confirmed');
+  });
+
+  it('SMSes organizer and sends holding reply when Gemini returns counter-proposal', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    getNextReply.mockResolvedValue(JSON.stringify({
+      status: 'counter-proposal',
+      suggestedTime: 'Friday May 22 at 2pm',
+      suggestedDatetime: '2026-05-22T14:00:00',
+      reply: "I'll check with Alice and get back to you!"
+    }));
+    const res = await twilioPost({ From: '+15551234567', Body: 'Can I do Friday at 2pm?' });
+    expect(res.text).toContain("I'll check with Alice");
+    expect(sendSms).toHaveBeenCalledWith(
+      '+15550009999',
+      expect.stringContaining('Friday May 22 at 2pm')
+    );
+  });
+});
+
+describe('POST /api/sms-reply — organizer messages', () => {
+  const pendingThread = {
+    ...baseThread,
+    waitingForOrganizerApproval: true,
+    pendingContactSuggestion: 'Friday May 22 at 2pm',
+    pendingContactDatetime: '2026-05-22T14:00:00'
+  };
+
+  it('confirms meeting when organizer replies YES', async () => {
+    getThread.mockResolvedValue({ ...pendingThread });
+    const res = await twilioPost({ From: '+15550009999', Body: 'Yes' });
+    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-22T14:00:00', 'Bob', 'alice@example.com');
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('confirmed'));
+    expect(res.text).toContain('Confirmed');
+  });
+
+  it('forwards organizer alternative times to contact', async () => {
+    getThread.mockResolvedValue({ ...pendingThread });
+    const res = await twilioPost({ From: '+15550009999', Body: 'Monday at 3pm or Tuesday at 11am' });
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Monday at 3pm'));
+    expect(bookCalendarEvent).not.toHaveBeenCalled();
+    expect(res.text).toContain('forwarded');
+  });
+
+  it('does nothing if organizer replies but no pending approval', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    const res = await twilioPost({ From: '+15550009999', Body: 'Hello' });
+    expect(sendSms).not.toHaveBeenCalled();
+    expect(res.text).toBe('<Response></Response>');
   });
 });

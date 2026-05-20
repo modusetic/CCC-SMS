@@ -7,7 +7,15 @@ const app = express();
 app.use(express.json());
 
 app.post('/api/initiate', async (req, res) => {
-  const { contactName, contactPhone, organizerName, organizerEmail, proposedTimes } = req.body;
+  const {
+    contactName,
+    contactPhone,
+    organizerName,
+    organizerEmail,
+    organizerPhone,
+    proposedTimes,
+    directorAlternatives
+  } = req.body;
 
   if (!contactName || !contactPhone || !organizerName || !organizerEmail || !proposedTimes?.length) {
     return res.status(400).json({
@@ -21,16 +29,19 @@ app.post('/api/initiate', async (req, res) => {
     contactPhone,
     organizerName,
     organizerEmail,
+    organizerPhone: organizerPhone || null,
     proposedTimes,
+    directorAlternatives: Array.isArray(directorAlternatives) ? directorAlternatives : [],
     status: 'pending',
+    waitingForOrganizerApproval: false,
+    pendingContactSuggestion: null,
+    pendingContactDatetime: null,
     attempts: 0,
     conversationHistory: [],
     createdAt: new Date().toISOString()
   };
 
   try {
-    await saveThread(contactPhone, thread);
-
     const timesList = proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
     const full = `Hi ${contactName}! ${organizerName} would like to meet. Options: ${timesList}. Which works?`;
     const smsBody = full.length > 160 ? full.substring(0, 157) + '...' : full;
@@ -39,6 +50,9 @@ app.post('/api/initiate', async (req, res) => {
 
     thread.conversationHistory.push({ role: 'model', content: smsBody });
     await saveThread(contactPhone, thread);
+    if (organizerPhone) {
+      await saveThread(organizerPhone, thread);
+    }
 
     res.status(200).json({ threadId: thread.threadId, message: 'Scheduling initiated' });
   } catch (err) {

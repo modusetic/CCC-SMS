@@ -15,6 +15,7 @@ const { getNextReply } = require('../../lib/gemini');
 const mockThread = {
   organizerName: 'Alice',
   contactName: 'Bob',
+  directorAlternatives: [],
   conversationHistory: [
     { role: 'model', content: 'Hi Bob! Available: Monday at 2pm. Which works?' },
     { role: 'user', content: 'Monday works for me!' }
@@ -22,13 +23,24 @@ const mockThread = {
 };
 
 describe('getNextReply', () => {
-  it('initializes model with gemini-1.5-flash and system prompt containing organizer name', async () => {
+  it('initializes model with gemini-2.5-flash and system prompt containing organizer name', async () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Great, confirmed!' } });
     await getNextReply(mockThread, 'Monday works!');
     expect(mockGetGenerativeModel).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'gemini-2.5-flash',
         systemInstruction: expect.stringContaining('Alice')
+      })
+    );
+  });
+
+  it('includes director alternatives in system prompt when provided', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    const threadWithAlts = { ...mockThread, directorAlternatives: ['Tuesday at 3pm', 'Thursday at 10am'] };
+    await getNextReply(threadWithAlts, 'Monday works!');
+    expect(mockGetGenerativeModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemInstruction: expect.stringContaining('Tuesday at 3pm')
       })
     );
   });

@@ -40,8 +40,13 @@ describe('POST /api/initiate', () => {
         contactPhone: '+15551234567',
         organizerName: 'Alice',
         organizerEmail: 'alice@example.com',
+        organizerPhone: null,
         proposedTimes: ['Monday May 12 at 2pm', 'Tuesday May 13 at 10am'],
+        directorAlternatives: [],
         status: 'pending',
+        waitingForOrganizerApproval: false,
+        pendingContactSuggestion: null,
+        pendingContactDatetime: null,
         attempts: 0,
         conversationHistory: expect.any(Array),
         createdAt: expect.any(String)
@@ -49,26 +54,40 @@ describe('POST /api/initiate', () => {
     );
   });
 
-  it('sends the first SMS via Twilio containing contact name', async () => {
-    await request(app).post('/api/initiate').send(validBody);
-    expect(sendSms).toHaveBeenCalledWith(
+  it('also saves thread under organizerPhone when provided', async () => {
+    await request(app).post('/api/initiate').send({
+      ...validBody,
+      organizerPhone: '+15550009999'
+    });
+    expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
+  });
+
+  it('stores directorAlternatives in thread when provided', async () => {
+    await request(app).post('/api/initiate').send({
+      ...validBody,
+      directorAlternatives: ['Wednesday at 3pm', 'Thursday at 11am']
+    });
+    expect(saveThread).toHaveBeenCalledWith(
       '+15551234567',
-      expect.stringContaining('Bob')
+      expect.objectContaining({
+        directorAlternatives: ['Wednesday at 3pm', 'Thursday at 11am']
+      })
     );
   });
 
+  it('sends the first SMS via Twilio containing contact name', async () => {
+    await request(app).post('/api/initiate').send(validBody);
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Bob'));
+  });
+
   it('returns 400 when required fields are missing', async () => {
-    const res = await request(app)
-      .post('/api/initiate')
-      .send({ contactName: 'Bob' });
+    const res = await request(app).post('/api/initiate').send({ contactName: 'Bob' });
     expect(res.status).toBe(400);
     expect(res.body.error).toBeDefined();
   });
 
   it('returns 400 when proposedTimes is an empty array', async () => {
-    const res = await request(app)
-      .post('/api/initiate')
-      .send({ ...validBody, proposedTimes: [] });
+    const res = await request(app).post('/api/initiate').send({ ...validBody, proposedTimes: [] });
     expect(res.status).toBe(400);
   });
 });
