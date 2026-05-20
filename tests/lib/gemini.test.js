@@ -33,12 +33,12 @@ describe('getNextReply', () => {
     );
   });
 
-  it('passes conversation history in Gemini format to startChat', async () => {
+  it('passes history to startChat starting from first user turn, dropping leading model entries', async () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
     await getNextReply(mockThread, 'Monday works!');
+    // Leading 'model' entry stripped — Gemini requires history to begin with 'user'
     expect(mockStartChat).toHaveBeenCalledWith({
       history: [
-        { role: 'model', parts: [{ text: 'Hi Bob! Available: Monday at 2pm. Which works?' }] },
         { role: 'user', parts: [{ text: 'Monday works for me!' }] }
       ]
     });
