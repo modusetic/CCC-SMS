@@ -55,10 +55,15 @@ app.post('/api/sms-reply', async (req, res) => {
   }
 
   if (!thread) {
+    console.log(`[sms-reply] no thread for ${from}`);
     return res.send(twimlReply("Sorry, I don't have an active scheduling request for this number."));
   }
 
+  const role = thread.organizerPhone && from === thread.organizerPhone ? 'organizer' : 'contact';
+  console.log(`[sms-reply] from=${from} role=${role} status=${thread.status} waitingApproval=${thread.waitingForOrganizerApproval} msg="${incomingMessage}"`);
+
   if (thread.status === 'confirmed') {
+    console.log('[sms-reply] thread already confirmed, ignoring');
     return res.send('<Response></Response>');
   }
 
@@ -75,9 +80,11 @@ async function handleContactReply(thread, incomingMessage, res) {
 
   try {
     const reply = await getNextReply(thread, incomingMessage);
+    console.log(`[sms-reply] gemini raw reply: ${reply}`);
 
     let parsed = null;
     try { parsed = JSON.parse(extractJson(reply)); } catch (_) {}
+    console.log(`[sms-reply] parsed action: ${parsed?.status ?? 'conversational'}`);
 
     if (parsed?.status === 'confirmed' && parsed?.datetime) {
       thread.status = 'confirmed';
@@ -110,6 +117,7 @@ async function handleContactReply(thread, incomingMessage, res) {
       await saveBoth(thread);
 
       if (thread.organizerPhone) {
+        console.log(`[sms-reply] pinging organizer ${thread.organizerPhone} with counter-proposal`);
         await sendSms(thread.organizerPhone,
           `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`
         );
@@ -143,6 +151,7 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
   try {
     const isApproval = /\b(yes|approve|ok|confirm|confirmed|sounds good|great|perfect)\b/i.test(incomingMessage);
 
+    console.log(`[sms-reply] organizer reply isApproval=${isApproval}`);
     if (isApproval) {
       thread.status = 'confirmed';
       thread.waitingForOrganizerApproval = false;
@@ -177,6 +186,7 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       const contactMsg = truncate(`Message from ${thread.organizerName}: ${incomingMessage}`);
       await saveBoth(thread);
 
+      console.log(`[sms-reply] forwarding organizer alternatives to contact ${thread.contactPhone}`);
       await sendSms(thread.contactPhone, contactMsg);
       return res.send(twimlReply(`Got it! I've forwarded your message to ${thread.contactName}.`));
     }
