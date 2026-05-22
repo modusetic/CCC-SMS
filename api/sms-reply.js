@@ -14,6 +14,10 @@ function twimlReply(message) {
   return `<Response><Message>${safe}</Message></Response>`;
 }
 
+function truncate(text) {
+  return text.length > 160 ? text.substring(0, 157) + '...' : text;
+}
+
 async function saveBoth(thread) {
   const saves = [saveThread(thread.contactPhone, thread)];
   if (thread.organizerPhone) saves.push(saveThread(thread.organizerPhone, thread));
@@ -49,6 +53,11 @@ app.post('/api/sms-reply', async (req, res) => {
 });
 
 async function handleContactReply(thread, incomingMessage, res) {
+  // Contact hasn't been reached out to yet — organizer is still reviewing
+  if (thread.status === 'waiting_organizer_initial') {
+    return res.send(twimlReply("Thanks for reaching out! We'll be in touch soon to confirm your appointment."));
+  }
+
   try {
     const reply = await getNextReply(thread, incomingMessage);
 
@@ -77,7 +86,7 @@ async function handleContactReply(thread, incomingMessage, res) {
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
 
       const holdingMsg = parsed.reply || `I'll check with ${thread.organizerName} and get back to you!`;
-      const smsSafe = holdingMsg.length > 160 ? holdingMsg.substring(0, 157) + '...' : holdingMsg;
+      const smsSafe = truncate(holdingMsg);
       thread.conversationHistory.push({ role: 'model', content: smsSafe });
       await saveBoth(thread);
 
@@ -91,7 +100,7 @@ async function handleContactReply(thread, incomingMessage, res) {
     } else {
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
-      const smsSafe = reply.length > 160 ? reply.substring(0, 157) + '...' : reply;
+      const smsSafe = truncate(reply);
       thread.conversationHistory.push({ role: 'model', content: smsSafe });
       await saveBoth(thread);
       return res.send(twimlReply(smsSafe));
@@ -103,11 +112,17 @@ async function handleContactReply(thread, incomingMessage, res) {
 }
 
 async function handleOrganizerReply(thread, incomingMessage, res) {
-  try {
-    if (!thread.waitingForOrganizerApproval) {
-      return res.send('<Response></Response>');
-    }
+  // Organizer is reviewing the contact's initially proposed times
+  if (thread.status === 'waiting_organizer_initial') {
+    return handleOrganizerInitialReview(thread, incomingMessage, res);
+  }
 
+  // Organizer is approving/rejecting a contact counter-proposal mid-conversation
+  if (!thread.waitingForOrganizerApproval) {
+    return res.send('<Response></Response>');
+  }
+
+  try {
     const isApproval = /\b(yes|approve|ok|confirm|confirmed|sounds good|great|perfect)\b/i.test(incomingMessage);
 
     if (isApproval) {
@@ -133,16 +148,44 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.pendingContactSuggestion = null;
       thread.pendingContactDatetime = null;
 
-      const contactMsg = `Update from ${thread.organizerName}: ${incomingMessage}. Does any of these work?`;
-      const smsSafe = contactMsg.length > 160 ? contactMsg.substring(0, 157) + '...' : contactMsg;
-      thread.conversationHistory.push({ role: 'model', content: smsSafe });
+      const contactMsg = truncate(`Update from ${thread.organizerName}: ${incomingMessage}. Does any of these work?`);
+      thread.conversationHistory.push({ role: 'model', content: contactMsg });
       await saveBoth(thread);
 
-      await sendSms(thread.contactPhone, smsSafe);
+      await sendSms(thread.contactPhone, contactMsg);
       return res.send(twimlReply(`Got it! I've forwarded your suggestion to ${thread.contactName}.`));
     }
   } catch (err) {
-    console.error('[sms-reply] Error processing organizer reply:', err.message);
+    console.error('[sms-reply] Error processing organizer approval:', err.message);
+    return res.send('<Response></Response>');
+  }
+}
+
+async function handleOrganizerInitialReview(thread, incomingMessage, res) {
+  try {
+    const isApproval = /\b(yes|approve|ok|confirm|confirmed|sounds good|great|perfect)\b/i.test(incomingMessage);
+
+    let smsBody;
+    if (isApproval) {
+      const timesList = thread.proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
+      smsBody = truncate(`Hi ${thread.contactName}! You can schedule for: ${timesList}. Which works best?`);
+    } else {
+      smsBody = truncate(`Hi ${thread.contactName}! ${thread.organizerName} is available for: ${incomingMessage}. Which works?`);
+    }
+
+    thread.status = 'pending';
+    thread.conversationHistory.push({ role: 'model', content: smsBody });
+    await saveBoth(thread);
+
+    await sendSms(thread.contactPhone, smsBody);
+
+    const reply = isApproval
+      ? `Got it! I've reached out to ${thread.contactName} with the proposed times.`
+      : `Got it! I've sent ${thread.contactName} your available times.`;
+    return res.send(twimlReply(reply));
+
+  } catch (err) {
+    console.error('[sms-reply] Error processing organizer initial review:', err.message);
     return res.send('<Response></Response>');
   }
 }

@@ -6,6 +6,10 @@ const { sendSms } = require('../lib/twilio');
 const app = express();
 app.use(express.json());
 
+function truncate(text) {
+  return text.length > 160 ? text.substring(0, 157) + '...' : text;
+}
+
 app.post('/api/initiate', async (req, res) => {
   const {
     contactName,
@@ -23,6 +27,10 @@ app.post('/api/initiate', async (req, res) => {
     });
   }
 
+  const hasOrganizerPhone = Boolean(organizerPhone);
+  const backupTimes = Array.isArray(directorAlternatives) ? directorAlternatives : [];
+  const hasBackupTimes = backupTimes.length > 0;
+
   const thread = {
     threadId: uuidv4(),
     contactName,
@@ -31,7 +39,7 @@ app.post('/api/initiate', async (req, res) => {
     organizerEmail,
     organizerPhone: organizerPhone || null,
     proposedTimes,
-    directorAlternatives: Array.isArray(directorAlternatives) ? directorAlternatives : [],
+    directorAlternatives: backupTimes,
     status: 'pending',
     waitingForOrganizerApproval: false,
     pendingContactSuggestion: null,
@@ -42,16 +50,35 @@ app.post('/api/initiate', async (req, res) => {
   };
 
   try {
-    const timesList = proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
-    const full = `Hi ${contactName}! ${organizerName} would like to meet. Options: ${timesList}. Which works?`;
-    const smsBody = full.length > 160 ? full.substring(0, 157) + '...' : full;
-
-    await sendSms(contactPhone, smsBody);
-
-    thread.conversationHistory.push({ role: 'model', content: smsBody });
-    await saveThread(contactPhone, thread);
-    if (organizerPhone) {
+    if (hasOrganizerPhone && !hasBackupTimes) {
+      // Contact's proposed times go to organizer for review first; contact waits
+      thread.status = 'waiting_organizer_initial';
+      const timesList = proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
+      const smsBody = truncate(`${contactName} wants to schedule. Their proposed times: ${timesList}. Reply APPROVE or with your available times.`);
+      await sendSms(organizerPhone, smsBody);
+      await saveThread(contactPhone, thread);
       await saveThread(organizerPhone, thread);
+
+    } else if (hasOrganizerPhone && hasBackupTimes) {
+      // Organizer pre-approved backup times — send to contact immediately, FYI to organizer
+      const backupList = backupTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
+      const contactMsg = truncate(`Hi ${contactName}! ${organizerName} is available for: ${backupList}. Which works?`);
+      await sendSms(contactPhone, contactMsg);
+      thread.conversationHistory.push({ role: 'model', content: contactMsg });
+
+      const orgFyi = truncate(`Scheduling started with ${contactName}. I've sent them your available times and will let you know when confirmed.`);
+      await sendSms(organizerPhone, orgFyi);
+
+      await saveThread(contactPhone, thread);
+      await saveThread(organizerPhone, thread);
+
+    } else {
+      // No organizer phone — send contact the proposed times directly
+      const timesList = proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
+      const smsBody = truncate(`Hi ${contactName}! ${organizerName} would like to meet. Options: ${timesList}. Which works?`);
+      await sendSms(contactPhone, smsBody);
+      thread.conversationHistory.push({ role: 'model', content: smsBody });
+      await saveThread(contactPhone, thread);
     }
 
     res.status(200).json({ threadId: thread.threadId, message: 'Scheduling initiated' });
