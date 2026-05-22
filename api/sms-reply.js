@@ -14,6 +14,12 @@ function twimlReply(message) {
   return `<Response><Message>${safe}</Message></Response>`;
 }
 
+// Gemini 2.5 Flash sometimes wraps JSON in ```json ... ``` — strip it before parsing
+function extractJson(text) {
+  const match = text.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return match ? match[1].trim() : text.trim();
+}
+
 function truncate(text) {
   return text.length > 160 ? text.substring(0, 157) + '...' : text;
 }
@@ -71,7 +77,7 @@ async function handleContactReply(thread, incomingMessage, res) {
     const reply = await getNextReply(thread, incomingMessage);
 
     let parsed = null;
-    try { parsed = JSON.parse(reply.trim()); } catch (_) {}
+    try { parsed = JSON.parse(extractJson(reply)); } catch (_) {}
 
     if (parsed?.status === 'confirmed' && parsed?.datetime) {
       thread.status = 'confirmed';
@@ -163,17 +169,20 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.waitingForOrganizerApproval = false;
       thread.pendingContactSuggestion = null;
       thread.pendingContactDatetime = null;
+      // Store organizer's suggestion as a backup time so Gemini has context on next turn.
+      // Don't push to conversationHistory here — the last entry is already a model turn
+      // (the holding message), and two consecutive model entries break the Gemini API.
+      thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
 
-      const contactMsg = truncate(`Update from ${thread.organizerName}: ${incomingMessage}. Does any of these work?`);
-      thread.conversationHistory.push({ role: 'model', content: contactMsg });
+      const contactMsg = truncate(`Message from ${thread.organizerName}: ${incomingMessage}`);
       await saveBoth(thread);
 
       await sendSms(thread.contactPhone, contactMsg);
-      return res.send(twimlReply(`Got it! I've forwarded your suggestion to ${thread.contactName}.`));
+      return res.send(twimlReply(`Got it! I've forwarded your message to ${thread.contactName}.`));
     }
   } catch (err) {
     console.error('[sms-reply] Error processing organizer approval:', err.message);
-    return res.send('<Response></Response>');
+    return res.send(twimlReply('Sorry, something went wrong on our end. Please try again.'));
   }
 }
 
