@@ -10,6 +10,20 @@ function truncate(text) {
   return text.length > 160 ? text.substring(0, 157) + '...' : text;
 }
 
+function listTimes(times) {
+  return times.length === 1
+    ? times[0]
+    : times.map((t, i) => `${i + 1}. ${t}`).join(', ');
+}
+
+function worksQ(count) {
+  return count === 1 ? 'Does this work for you?' : 'Which works?';
+}
+
+function timeWord(count) {
+  return count === 1 ? 'time' : 'times';
+}
+
 app.post('/api/initiate', async (req, res) => {
   const {
     contactName,
@@ -53,20 +67,26 @@ app.post('/api/initiate', async (req, res) => {
     if (hasOrganizerPhone && !hasBackupTimes) {
       // Contact's proposed times go to organizer for review first; contact waits
       thread.status = 'waiting_organizer_initial';
-      const timesList = proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
-      const smsBody = truncate(`${contactName} wants to schedule. Their proposed times: ${timesList}. Reply APPROVE or with your available times.`);
+      const n = proposedTimes.length;
+      const smsBody = truncate(
+        `${contactName} wants to schedule. Their proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply APPROVE or with your available ${timeWord(n)}.`
+      );
       await sendSms(organizerPhone, smsBody);
       await saveThread(contactPhone, thread);
       await saveThread(organizerPhone, thread);
 
     } else if (hasOrganizerPhone && hasBackupTimes) {
       // Organizer pre-approved backup times — send to contact immediately, FYI to organizer
-      const backupList = backupTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
-      const contactMsg = truncate(`Hi ${contactName}! ${organizerName} is available for: ${backupList}. Which works?`);
+      const n = backupTimes.length;
+      const contactMsg = truncate(
+        `Hi ${contactName}! ${organizerName} is available for: ${listTimes(backupTimes)}. ${worksQ(n)}`
+      );
       await sendSms(contactPhone, contactMsg);
       thread.conversationHistory.push({ role: 'model', content: contactMsg });
 
-      const orgFyi = truncate(`Scheduling started with ${contactName}. I've sent them your available times and will let you know when confirmed.`);
+      const orgFyi = truncate(
+        `Scheduling started with ${contactName}. I've sent them your available ${timeWord(n)} and will let you know when confirmed.`
+      );
       await sendSms(organizerPhone, orgFyi);
 
       await saveThread(contactPhone, thread);
@@ -74,8 +94,11 @@ app.post('/api/initiate', async (req, res) => {
 
     } else {
       // No organizer phone — send contact the proposed times directly
-      const timesList = proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
-      const smsBody = truncate(`Hi ${contactName}! ${organizerName} would like to meet. Options: ${timesList}. Which works?`);
+      const n = proposedTimes.length;
+      const label = n === 1 ? 'Available time' : 'Options';
+      const smsBody = truncate(
+        `Hi ${contactName}! ${organizerName} would like to meet. ${label}: ${listTimes(proposedTimes)}. ${worksQ(n)}`
+      );
       await sendSms(contactPhone, smsBody);
       thread.conversationHistory.push({ role: 'model', content: smsBody });
       await saveThread(contactPhone, thread);

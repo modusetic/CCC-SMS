@@ -18,6 +18,16 @@ function truncate(text) {
   return text.length > 160 ? text.substring(0, 157) + '...' : text;
 }
 
+function listTimes(times) {
+  return times.length === 1
+    ? times[0]
+    : times.map((t, i) => `${i + 1}. ${t}`).join(', ');
+}
+
+function worksQ(count) {
+  return count === 1 ? 'Does this work for you?' : 'Which works?';
+}
+
 async function saveBoth(thread) {
   const saves = [saveThread(thread.contactPhone, thread)];
   if (thread.organizerPhone) saves.push(saveThread(thread.organizerPhone, thread));
@@ -53,7 +63,6 @@ app.post('/api/sms-reply', async (req, res) => {
 });
 
 async function handleContactReply(thread, incomingMessage, res) {
-  // Contact hasn't been reached out to yet — organizer is still reviewing
   if (thread.status === 'waiting_organizer_initial') {
     return res.send(twimlReply("Thanks for reaching out! We'll be in touch soon to confirm your appointment."));
   }
@@ -69,7 +78,11 @@ async function handleContactReply(thread, incomingMessage, res) {
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
 
-      await bookCalendarEvent(parsed.datetime, thread.contactName, thread.organizerEmail);
+      try {
+        await bookCalendarEvent(parsed.datetime, thread.contactName, thread.organizerEmail);
+      } catch (calErr) {
+        console.error('[sms-reply] Calendar booking failed (non-fatal):', calErr.message);
+      }
       await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, parsed.datetime);
 
       const confirmMsg = `Your meeting with ${thread.organizerName} is confirmed! You'll receive details soon.`;
@@ -91,8 +104,9 @@ async function handleContactReply(thread, incomingMessage, res) {
       await saveBoth(thread);
 
       if (thread.organizerPhone) {
-        const orgMsg = `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`;
-        await sendSms(thread.organizerPhone, orgMsg);
+        await sendSms(thread.organizerPhone,
+          `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`
+        );
       }
 
       return res.send(twimlReply(smsSafe));
@@ -112,12 +126,10 @@ async function handleContactReply(thread, incomingMessage, res) {
 }
 
 async function handleOrganizerReply(thread, incomingMessage, res) {
-  // Organizer is reviewing the contact's initially proposed times
   if (thread.status === 'waiting_organizer_initial') {
     return handleOrganizerInitialReview(thread, incomingMessage, res);
   }
 
-  // Organizer is approving/rejecting a contact counter-proposal mid-conversation
   if (!thread.waitingForOrganizerApproval) {
     return res.send('<Response></Response>');
   }
@@ -130,7 +142,11 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.waitingForOrganizerApproval = false;
 
       if (thread.pendingContactDatetime) {
-        await bookCalendarEvent(thread.pendingContactDatetime, thread.contactName, thread.organizerEmail);
+        try {
+          await bookCalendarEvent(thread.pendingContactDatetime, thread.contactName, thread.organizerEmail);
+        } catch (calErr) {
+          console.error('[sms-reply] Calendar booking failed (non-fatal):', calErr.message);
+        }
         await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactDatetime);
       } else {
         await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactSuggestion);
@@ -167,10 +183,14 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res) {
 
     let smsBody;
     if (isApproval) {
-      const timesList = thread.proposedTimes.map((t, i) => `${i + 1}. ${t}`).join(', ');
-      smsBody = truncate(`Hi ${thread.contactName}! You can schedule for: ${timesList}. Which works best?`);
+      const n = thread.proposedTimes.length;
+      smsBody = truncate(
+        `Hi ${thread.contactName}! You can schedule for: ${listTimes(thread.proposedTimes)}. ${worksQ(n)}`
+      );
     } else {
-      smsBody = truncate(`Hi ${thread.contactName}! ${thread.organizerName} is available for: ${incomingMessage}. Which works?`);
+      smsBody = truncate(
+        `Hi ${thread.contactName}! ${thread.organizerName} is available for: ${incomingMessage}. Which works?`
+      );
     }
 
     thread.status = 'pending';
