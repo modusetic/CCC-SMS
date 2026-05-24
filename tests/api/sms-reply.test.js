@@ -28,7 +28,8 @@ jest.mock('../../lib/twilio', () => ({
 }));
 
 jest.mock('../../lib/gemini', () => ({
-  getNextReply: jest.fn()
+  getNextReply: jest.fn(),
+  getOrganizerUpdateReply: jest.fn()
 }));
 
 jest.mock('../../lib/calendar', () => ({
@@ -41,7 +42,7 @@ jest.mock('../../lib/email', () => ({
 
 const { getThread } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
-const { getNextReply } = require('../../lib/gemini');
+const { getNextReply, getOrganizerUpdateReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
 const app = require('../../api/sms-reply');
@@ -161,14 +162,27 @@ describe('organizer messages — counter-proposal approval', () => {
 });
 
 describe('organizer messages — unsolicited availability update', () => {
-  it('forwards organizer availability update to contact', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
-    const res = await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
-    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining("I can't May 26 at 2pm but I can at 3pm"));
-    expect(res.text).toContain('forwarded');
+  beforeEach(() => {
+    getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is now free at 3pm instead. Does that work for you?");
   });
 
-  it('acknowledges the organizer after forwarding the update', async () => {
+  it('uses Gemini to craft a message to the contact', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
+    expect(getOrganizerUpdateReply).toHaveBeenCalledWith(
+      'Alice',
+      'Bob',
+      "I can't May 26 at 2pm but I can at 3pm"
+    );
+  });
+
+  it('sends Gemini reply to the contact', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', "Hi Bob! Alice is now free at 3pm instead. Does that work for you?");
+  });
+
+  it('acknowledges the organizer by contact name', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     const res = await post({ From: '+15550009999', Body: "Only available Thursday at noon" });
     expect(res.status).toBe(200);

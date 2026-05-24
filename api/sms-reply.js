@@ -1,7 +1,7 @@
 const express = require('express');
 const { getThread, saveThread } = require('../lib/kv');
 const { sendSms } = require('../lib/twilio');
-const { getNextReply } = require('../lib/gemini');
+const { getNextReply, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
 
@@ -147,18 +147,19 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
   if (!thread.waitingForOrganizerApproval) {
     // Organizer is proactively updating their availability.
     // Add to directorAlternatives so Gemini uses it on the next contact turn,
-    // forward the update to the contact, and acknowledge the organizer.
+    // then ask Gemini to craft a proper message to the contact about the update.
+    // Don't push to conversationHistory — the last entry may already be a model
+    // turn, and two consecutive model entries break the Gemini multi-turn API.
     try {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
-      // Don't push to conversationHistory — the last entry may already be a model
-      // turn, and two consecutive model entries break the Gemini multi-turn API.
       await saveBoth(thread);
-      const contactMsg = truncate(`Update from ${thread.organizerName}: ${incomingMessage}`);
-      await sendSms(thread.contactPhone, contactMsg);
-      console.log(`[sms-reply] organizer unsolicited update forwarded to contact ${thread.contactPhone}`);
-      return res.send(twimlReply(`Got it! I've forwarded your updated availability to ${thread.contactName}.`));
+      const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage);
+      const smsSafe = truncate(aiMsg);
+      await sendSms(thread.contactPhone, smsSafe);
+      console.log(`[sms-reply] organizer unsolicited update — AI reply sent to contact ${thread.contactPhone}: "${smsSafe}"`);
+      return res.send(twimlReply(`Got it! I've let ${thread.contactName} know about your updated availability.`));
     } catch (err) {
-      console.error('[sms-reply] Error forwarding organizer availability update:', err.message);
+      console.error('[sms-reply] Error handling organizer availability update:', err.message);
       return res.send('<Response></Response>');
     }
   }

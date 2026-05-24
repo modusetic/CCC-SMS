@@ -1,6 +1,10 @@
 const mockSendMessage = jest.fn();
 const mockStartChat = jest.fn(() => ({ sendMessage: mockSendMessage }));
-const mockGetGenerativeModel = jest.fn(() => ({ startChat: mockStartChat }));
+const mockGenerateContent = jest.fn();
+const mockGetGenerativeModel = jest.fn(() => ({
+  startChat: mockStartChat,
+  generateContent: mockGenerateContent
+}));
 
 jest.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: jest.fn(() => ({
@@ -10,7 +14,7 @@ jest.mock('@google/generative-ai', () => ({
 
 process.env.GEMINI_API_KEY = 'test-api-key';
 
-const { getNextReply } = require('../../lib/gemini');
+const { getNextReply, getOrganizerUpdateReply } = require('../../lib/gemini');
 
 const mockThread = {
   organizerName: 'Alice',
@@ -66,5 +70,32 @@ describe('getNextReply', () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Sounds great!' } });
     const reply = await getNextReply(mockThread, 'Monday at 2pm');
     expect(reply).toBe('Sounds great!');
+  });
+});
+
+describe('getOrganizerUpdateReply', () => {
+  it('calls generateContent with organizer update context', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead. Does that work?" } });
+    await getOrganizerUpdateReply('Alice', 'Bob', "I can't at 1pm, but 3pm works");
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      expect.stringContaining("I can't at 1pm, but 3pm works")
+    );
+  });
+
+  it('returns the Gemini-generated message', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead. Does that work?" } });
+    const reply = await getOrganizerUpdateReply('Alice', 'Bob', "3pm works instead");
+    expect(reply).toBe("Hi Bob! Alice can do 3pm instead. Does that work?");
+  });
+
+  it('uses gemini-2.5-flash with organizer name in system instruction', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi!' } });
+    await getOrganizerUpdateReply('Alice', 'Bob', 'Try 4pm');
+    expect(mockGetGenerativeModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gemini-2.5-flash',
+        systemInstruction: expect.stringContaining('Alice')
+      })
+    );
   });
 });
