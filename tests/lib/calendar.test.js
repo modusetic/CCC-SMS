@@ -32,17 +32,14 @@ describe('bookCalendarEvent', () => {
       'organizer@example.com'
     );
 
-    expect(mockInsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        calendarId: 'test@group.calendar.google.com',
-        resource: expect.objectContaining({
-          summary: 'Meeting with Jane Doe',
-          description: 'Scheduled via SMS automation.',
-          start: expect.objectContaining({ dateTime: expect.any(String) }),
-          end: expect.objectContaining({ dateTime: expect.any(String) })
-        })
-      })
-    );
+    const call = mockInsert.mock.calls[0][0];
+    expect(call.calendarId).toBe('test@group.calendar.google.com');
+    expect(call.resource.summary).toBe('Meeting with Jane Doe');
+    expect(call.resource.description).toBe('Scheduled via SMS automation.');
+    expect(call.resource.start.dateTime).toBeDefined();
+    expect(call.resource.end.dateTime).toBeDefined();
+    // Service accounts cannot invite attendees without Domain-Wide Delegation
+    expect(call.resource.attendees).toBeUndefined();
     expect(result).toEqual({ id: 'event-abc', htmlLink: 'https://calendar.google.com/event?id=abc' });
   });
 
