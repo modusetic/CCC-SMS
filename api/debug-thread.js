@@ -5,7 +5,10 @@ const app = express();
 app.use(express.json());
 
 app.get('/api/debug-thread', async (req, res) => {
-  const { phone } = req.query;
+  const raw = req.query.phone || '';
+  // Express/qs decodes '+' as a space in query strings.
+  // Restore it so '+18325176982' works without requiring '%2B' encoding.
+  const phone = raw.startsWith(' ') ? '+' + raw.slice(1).trim() : raw.trim();
 
   if (!phone) {
     return res.status(400).json({ error: 'Missing ?phone= query parameter (E.164 format, e.g. +15551234567)' });

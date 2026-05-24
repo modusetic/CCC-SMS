@@ -103,3 +103,28 @@ describe('POST /api/initiate — validation', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /api/initiate — phone normalization', () => {
+  it('normalizes contact phone without + to E.164', async () => {
+    await request(app).post('/api/initiate').send({ ...base, contactPhone: '15551234567' });
+    expect(saveThread).toHaveBeenCalledWith('+15551234567', expect.any(Object));
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.any(String));
+  });
+
+  it('normalizes formatted contact phone to E.164', async () => {
+    // Input includes country code 1; normalizer strips parens/spaces/dashes and prepends +
+    await request(app).post('/api/initiate').send({ ...base, contactPhone: '1 (555) 123-4567' });
+    expect(saveThread).toHaveBeenCalledWith('+15551234567', expect.any(Object));
+  });
+
+  it('normalizes organizer phone without + to E.164', async () => {
+    await request(app).post('/api/initiate').send({ ...base, organizerPhone: '15550009999' });
+    expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
+    expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.any(String));
+  });
+
+  it('leaves already-correct E.164 phones unchanged', async () => {
+    await request(app).post('/api/initiate').send({ ...base, organizerPhone: '+15550009999' });
+    expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
+  });
+});

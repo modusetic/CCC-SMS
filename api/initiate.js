@@ -24,6 +24,15 @@ function timeWord(count) {
   return count === 1 ? 'time' : 'times';
 }
 
+// Normalize a phone number to E.164 (+digits).
+// Handles: '+18325176982', '18325176982', '(832) 517-6982', '832-517-6982'.
+// Twilio always sends E.164 in webhooks, so Redis keys must match that format.
+function normalizePhone(phone) {
+  if (!phone) return null;
+  const stripped = phone.trim().replace(/[^\d+]/g, ''); // keep digits and +
+  return stripped.startsWith('+') ? stripped : `+${stripped}`;
+}
+
 app.post('/api/initiate', async (req, res) => {
   const {
     contactName,
@@ -41,17 +50,19 @@ app.post('/api/initiate', async (req, res) => {
     });
   }
 
-  const hasOrganizerPhone = Boolean(organizerPhone);
+  const normalizedContactPhone  = normalizePhone(contactPhone);
+  const normalizedOrganizerPhone = normalizePhone(organizerPhone);
+  const hasOrganizerPhone = Boolean(normalizedOrganizerPhone);
   const backupTimes = Array.isArray(directorAlternatives) ? directorAlternatives : [];
   const hasBackupTimes = backupTimes.length > 0;
 
   const thread = {
     threadId: uuidv4(),
     contactName,
-    contactPhone,
+    contactPhone:  normalizedContactPhone,
     organizerName,
     organizerEmail,
-    organizerPhone: organizerPhone || null,
+    organizerPhone: normalizedOrganizerPhone,
     proposedTimes,
     directorAlternatives: backupTimes,
     status: 'pending',
@@ -72,9 +83,9 @@ app.post('/api/initiate', async (req, res) => {
       const smsBody = truncate(
         `${contactName} wants to schedule. Their proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply APPROVE or with your available ${timeWord(n)}.`
       );
-      await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
-      console.log(`[initiate] thread ${thread.threadId} saved (waiting_organizer_initial) contact=${contactPhone} organizer=${organizerPhone}`);
-      await sendSms(organizerPhone, smsBody);
+      await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
+      console.log(`[initiate] thread ${thread.threadId} saved (waiting_organizer_initial) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
+      await sendSms(normalizedOrganizerPhone, smsBody);
 
     } else if (hasOrganizerPhone && hasBackupTimes) {
       // Organizer pre-approved backup times — send to contact immediately, FYI to organizer.
@@ -87,10 +98,10 @@ app.post('/api/initiate', async (req, res) => {
       const orgFyi = truncate(
         `Scheduling started with ${contactName}. I've sent them your available ${timeWord(n)} and will let you know when confirmed.`
       );
-      await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
-      console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${contactPhone} organizer=${organizerPhone}`);
-      await sendSms(contactPhone, contactMsg);
-      await sendSms(organizerPhone, orgFyi);
+      await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
+      console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
+      await sendSms(normalizedContactPhone, contactMsg);
+      await sendSms(normalizedOrganizerPhone, orgFyi);
 
     } else {
       // No organizer phone — send contact the proposed times directly.
@@ -100,9 +111,9 @@ app.post('/api/initiate', async (req, res) => {
         `Hi ${contactName}! ${organizerName} would like to meet. ${label}: ${listTimes(proposedTimes)}. ${worksQ(n)}`
       );
       thread.conversationHistory.push({ role: 'model', content: smsBody });
-      await saveThread(contactPhone, thread);
-      console.log(`[initiate] thread ${thread.threadId} saved (pending, no organizer) contact=${contactPhone}`);
-      await sendSms(contactPhone, smsBody);
+      await saveThread(normalizedContactPhone, thread);
+      console.log(`[initiate] thread ${thread.threadId} saved (pending, no organizer) contact=${normalizedContactPhone}`);
+      await sendSms(normalizedContactPhone, smsBody);
     }
 
     res.status(200).json({ threadId: thread.threadId, message: 'Scheduling initiated' });

@@ -60,4 +60,12 @@ describe('GET /api/debug-thread', () => {
     expect(res.status).toBe(500);
     expect(res.body.detail).toBe('Redis timeout');
   });
+
+  it('restores + sign when browser URL-encodes it as a space', async () => {
+    // Browsers send ?phone=+18325176982 which Express decodes as ' 18325176982'
+    getThread.mockResolvedValue({ ...mockThread });
+    const res = await request(app).get('/api/debug-thread?phone=%2018325176982');
+    expect(getThread).toHaveBeenCalledWith('+18325176982');
+    expect(res.status).toBe(200);
+  });
 });
