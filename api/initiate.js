@@ -65,41 +65,44 @@ app.post('/api/initiate', async (req, res) => {
 
   try {
     if (hasOrganizerPhone && !hasBackupTimes) {
-      // Contact's proposed times go to organizer for review first; contact waits
+      // Contact's proposed times go to organizer for review first; contact waits.
+      // Save BEFORE sending so Redis is always consistent with what was texted.
       thread.status = 'waiting_organizer_initial';
       const n = proposedTimes.length;
       const smsBody = truncate(
         `${contactName} wants to schedule. Their proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply APPROVE or with your available ${timeWord(n)}.`
       );
-      await sendSms(organizerPhone, smsBody);
       await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
+      console.log(`[initiate] thread ${thread.threadId} saved (waiting_organizer_initial) contact=${contactPhone} organizer=${organizerPhone}`);
+      await sendSms(organizerPhone, smsBody);
 
     } else if (hasOrganizerPhone && hasBackupTimes) {
-      // Organizer pre-approved backup times — send to contact immediately, FYI to organizer
+      // Organizer pre-approved backup times — send to contact immediately, FYI to organizer.
+      // Build messages and push to history first, then save, then send.
       const n = backupTimes.length;
       const contactMsg = truncate(
         `Hi ${contactName}! ${organizerName} is available for: ${listTimes(backupTimes)}. ${worksQ(n)}`
       );
-      await sendSms(contactPhone, contactMsg);
       thread.conversationHistory.push({ role: 'model', content: contactMsg });
-
       const orgFyi = truncate(
         `Scheduling started with ${contactName}. I've sent them your available ${timeWord(n)} and will let you know when confirmed.`
       );
+      await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
+      console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${contactPhone} organizer=${organizerPhone}`);
+      await sendSms(contactPhone, contactMsg);
       await sendSms(organizerPhone, orgFyi);
 
-      await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
-
     } else {
-      // No organizer phone — send contact the proposed times directly
+      // No organizer phone — send contact the proposed times directly.
       const n = proposedTimes.length;
       const label = n === 1 ? 'Available time' : 'Options';
       const smsBody = truncate(
         `Hi ${contactName}! ${organizerName} would like to meet. ${label}: ${listTimes(proposedTimes)}. ${worksQ(n)}`
       );
-      await sendSms(contactPhone, smsBody);
       thread.conversationHistory.push({ role: 'model', content: smsBody });
       await saveThread(contactPhone, thread);
+      console.log(`[initiate] thread ${thread.threadId} saved (pending, no organizer) contact=${contactPhone}`);
+      await sendSms(contactPhone, smsBody);
     }
 
     res.status(200).json({ threadId: thread.threadId, message: 'Scheduling initiated' });
