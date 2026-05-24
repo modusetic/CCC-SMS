@@ -72,8 +72,7 @@ app.post('/api/initiate', async (req, res) => {
         `${contactName} wants to schedule. Their proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply APPROVE or with your available ${timeWord(n)}.`
       );
       await sendSms(organizerPhone, smsBody);
-      await saveThread(contactPhone, thread);
-      await saveThread(organizerPhone, thread);
+      await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
 
     } else if (hasOrganizerPhone && hasBackupTimes) {
       // Organizer pre-approved backup times — send to contact immediately, FYI to organizer
@@ -89,8 +88,7 @@ app.post('/api/initiate', async (req, res) => {
       );
       await sendSms(organizerPhone, orgFyi);
 
-      await saveThread(contactPhone, thread);
-      await saveThread(organizerPhone, thread);
+      await Promise.all([saveThread(contactPhone, thread), saveThread(organizerPhone, thread)]);
 
     } else {
       // No organizer phone — send contact the proposed times directly

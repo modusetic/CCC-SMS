@@ -219,12 +219,12 @@
 
     <div class="field">
       <label for="contactName">Name</label>
-      <input type="text" id="contactName" placeholder="Jane Smith" required />
+      <input type="text" id="contactName" placeholder="Jane Smith" autocomplete="off" required />
     </div>
 
     <div class="field">
       <label for="contactPhone">Phone number</label>
-      <input type="tel" id="contactPhone" placeholder="+15551234567" required />
+      <input type="tel" id="contactPhone" placeholder="+15551234567" autocomplete="off" required />
       <p class="hint">E.164 format — e.g. +15551234567</p>
     </div>
 
@@ -400,6 +400,10 @@
       if (res.ok) {
         showToast(`SMS sent! Thread ID: ${data.threadId}`, 'success');
         e.target.reset();
+        // Explicitly blank the contact fields — autocomplete="off" prevents
+        // suggestions, but some browsers still restore values after reset().
+        document.getElementById('contactName').value = '';
+        document.getElementById('contactPhone').value = '';
         const list = document.getElementById('timesList');
         list.innerHTML = '';
         list.appendChild(buildRow('timesList'));
