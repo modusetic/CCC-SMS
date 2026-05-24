@@ -145,7 +145,22 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
   }
 
   if (!thread.waitingForOrganizerApproval) {
-    return res.send('<Response></Response>');
+    // Organizer is proactively updating their availability.
+    // Add to directorAlternatives so Gemini uses it on the next contact turn,
+    // forward the update to the contact, and acknowledge the organizer.
+    try {
+      thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
+      // Don't push to conversationHistory — the last entry may already be a model
+      // turn, and two consecutive model entries break the Gemini multi-turn API.
+      await saveBoth(thread);
+      const contactMsg = truncate(`Update from ${thread.organizerName}: ${incomingMessage}`);
+      await sendSms(thread.contactPhone, contactMsg);
+      console.log(`[sms-reply] organizer unsolicited update forwarded to contact ${thread.contactPhone}`);
+      return res.send(twimlReply(`Got it! I've forwarded your updated availability to ${thread.contactName}.`));
+    } catch (err) {
+      console.error('[sms-reply] Error forwarding organizer availability update:', err.message);
+      return res.send('<Response></Response>');
+    }
   }
 
   try {

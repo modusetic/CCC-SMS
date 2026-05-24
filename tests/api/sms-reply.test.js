@@ -158,10 +158,32 @@ describe('organizer messages — counter-proposal approval', () => {
     expect(res.text).toContain('forwarded');
   });
 
-  it('does nothing if organizer replies with no pending approval', async () => {
+});
+
+describe('organizer messages — unsolicited availability update', () => {
+  it('forwards organizer availability update to contact', async () => {
     getThread.mockResolvedValue({ ...baseThread });
-    const res = await post({ From: '+15550009999', Body: 'Hello' });
-    expect(sendSms).not.toHaveBeenCalled();
-    expect(res.text).toBe('<Response></Response>');
+    const res = await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining("I can't May 26 at 2pm but I can at 3pm"));
+    expect(res.text).toContain('forwarded');
+  });
+
+  it('acknowledges the organizer after forwarding the update', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    const res = await post({ From: '+15550009999', Body: "Only available Thursday at noon" });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Bob');
+  });
+
+  it('adds organizer update to directorAlternatives', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...baseThread });
+    await post({ From: '+15550009999', Body: 'Try Friday at 4pm instead' });
+    expect(saveThread).toHaveBeenCalledWith(
+      '+15551234567',
+      expect.objectContaining({
+        directorAlternatives: expect.arrayContaining(['Try Friday at 4pm instead'])
+      })
+    );
   });
 });
