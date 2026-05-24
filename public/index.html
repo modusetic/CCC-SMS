@@ -113,6 +113,21 @@
       font-size: 0.85rem;
     }
 
+    .phone-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .phone-row .select-wrap {
+      flex-shrink: 0;
+      width: 112px;
+    }
+
+    .phone-row input {
+      flex: 1;
+      min-width: 0;
+    }
+
     .times-list {
       display: flex;
       flex-direction: column;
@@ -224,8 +239,29 @@
 
     <div class="field">
       <label for="contactPhone">Phone number</label>
-      <input type="tel" id="contactPhone" placeholder="+15551234567" autocomplete="off" required />
-      <p class="hint">E.164 format — e.g. +15551234567</p>
+      <div class="phone-row">
+        <div class="select-wrap">
+          <select id="contactCountry" aria-label="Country code">
+            <option value="+1" selected>+1 US/CA</option>
+            <option value="+52">+52 MX</option>
+            <option value="+44">+44 UK</option>
+            <option value="+34">+34 ES</option>
+            <option value="+54">+54 AR</option>
+            <option value="+55">+55 BR</option>
+            <option value="+57">+57 CO</option>
+            <option value="+56">+56 CL</option>
+            <option value="+51">+51 PE</option>
+            <option value="+33">+33 FR</option>
+            <option value="+49">+49 DE</option>
+            <option value="+39">+39 IT</option>
+            <option value="+61">+61 AU</option>
+            <option value="+81">+81 JP</option>
+            <option value="+91">+91 IN</option>
+          </select>
+        </div>
+        <input type="tel" id="contactPhone" placeholder="5551234567" autocomplete="off" required />
+      </div>
+      <p class="hint">10-digit number, no spaces or dashes needed</p>
     </div>
 
     <hr class="divider" />
@@ -249,8 +285,29 @@
 
     <div class="field">
       <label for="organizerPhone">Phone number <span style="font-weight:400;color:#999">(optional — required for organizer approval)</span></label>
-      <input type="tel" id="organizerPhone" placeholder="+15559876543" />
-      <p class="hint">E.164 format — e.g. +15559876543. If provided, the organizer will receive an SMS when the contact suggests an alternative time.</p>
+      <div class="phone-row">
+        <div class="select-wrap">
+          <select id="organizerCountry" aria-label="Country code">
+            <option value="+1" selected>+1 US/CA</option>
+            <option value="+52">+52 MX</option>
+            <option value="+44">+44 UK</option>
+            <option value="+34">+34 ES</option>
+            <option value="+54">+54 AR</option>
+            <option value="+55">+55 BR</option>
+            <option value="+57">+57 CO</option>
+            <option value="+56">+56 CL</option>
+            <option value="+51">+51 PE</option>
+            <option value="+33">+33 FR</option>
+            <option value="+49">+49 DE</option>
+            <option value="+39">+39 IT</option>
+            <option value="+61">+61 AU</option>
+            <option value="+81">+81 JP</option>
+            <option value="+91">+91 IN</option>
+          </select>
+        </div>
+        <input type="tel" id="organizerPhone" placeholder="5559876543" />
+      </div>
+      <p class="hint">If provided, the organizer will receive an SMS when the contact suggests an alternative time.</p>
     </div>
 
     <hr class="divider" />
@@ -358,6 +415,15 @@
     document.getElementById('backupTimesList').appendChild(buildRow('backupTimesList'));
   });
 
+  // ── Phone helpers ─────────────────────────────────────────────────────────
+  // Combines the country-code select with the number input into E.164.
+  // Strips any spaces/dashes the user types in the number field.
+  function getPhone(countrySelectId, numberInputId) {
+    const code   = document.getElementById(countrySelectId).value;
+    const digits = document.getElementById(numberInputId).value.trim().replace(/\D/g, '');
+    return digits ? `${code}${digits}` : '';
+  }
+
   // ── Submit ────────────────────────────────────────────────────────────────
   function showToast(message, type) {
     const toast = document.getElementById('toast');
@@ -369,14 +435,15 @@
   document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const proposedTimes = collectSlots('timesList');
-    const backupSlots   = collectSlots('backupTimesList');
+    const proposedTimes  = collectSlots('timesList');
+    const backupSlots    = collectSlots('backupTimesList');
 
-    const organizerPhone = document.getElementById('organizerPhone').value.trim();
+    const contactPhone   = getPhone('contactCountry',  'contactPhone');
+    const organizerPhone = getPhone('organizerCountry', 'organizerPhone');
 
     const payload = {
       contactName:    document.getElementById('contactName').value.trim(),
-      contactPhone:   document.getElementById('contactPhone').value.trim(),
+      contactPhone,
       organizerName:  document.getElementById('organizerName').value.trim(),
       organizerEmail: document.getElementById('organizerEmail').value.trim(),
       proposedTimes,
@@ -404,6 +471,9 @@
         // suggestions, but some browsers still restore values after reset().
         document.getElementById('contactName').value = '';
         document.getElementById('contactPhone').value = '';
+        document.getElementById('contactCountry').value = '+1';
+        document.getElementById('organizerPhone').value = '';
+        document.getElementById('organizerCountry').value = '+1';
         const list = document.getElementById('timesList');
         list.innerHTML = '';
         list.appendChild(buildRow('timesList'));
