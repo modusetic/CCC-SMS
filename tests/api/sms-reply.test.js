@@ -29,6 +29,7 @@ jest.mock('../../lib/twilio', () => ({
 
 jest.mock('../../lib/gemini', () => ({
   getNextReply: jest.fn(),
+  getOrganizerInitialContactMessage: jest.fn(),
   getOrganizerUpdateReply: jest.fn()
 }));
 
@@ -42,7 +43,7 @@ jest.mock('../../lib/email', () => ({
 
 const { getThread } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
-const { getNextReply, getOrganizerUpdateReply } = require('../../lib/gemini');
+const { getNextReply, getOrganizerInitialContactMessage, getOrganizerUpdateReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
 const app = require('../../api/sms-reply');
@@ -110,18 +111,40 @@ describe('contact messages — standard flow', () => {
 describe('organizer messages — initial review', () => {
   const waitingThread = { ...baseThread, status: 'waiting_organizer_initial' };
 
-  it('contacts the contact with proposed times when organizer replies APPROVE', async () => {
-    getThread.mockResolvedValue({ ...waitingThread });
-    const res = await post({ From: '+15550009999', Body: 'Approve' });
-    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Monday at 2pm'));
-    expect(res.text).toContain('reached out');
+  beforeEach(() => {
+    getOrganizerInitialContactMessage.mockResolvedValue(
+      "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday at 10am. Which works for you?"
+    );
   });
 
-  it('contacts the contact with organizer alternative times', async () => {
+  it('calls Gemini to craft the contact message on approval', async () => {
     getThread.mockResolvedValue({ ...waitingThread });
-    const res = await post({ From: '+15550009999', Body: 'Wednesday at 3pm or Thursday at 11am' });
-    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Wednesday at 3pm'));
-    expect(res.text).toContain("sent");
+    await post({ From: '+15550009999', Body: 'Approve' });
+    expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
+      'Alice', 'Bob', expect.any(Array), 'Approve', true
+    );
+  });
+
+  it('calls Gemini to craft the contact message with organizer alternatives', async () => {
+    getThread.mockResolvedValue({ ...waitingThread });
+    await post({ From: '+15550009999', Body: 'Wednesday at 3pm or Thursday at 11am' });
+    expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
+      'Alice', 'Bob', expect.any(Array), 'Wednesday at 3pm or Thursday at 11am', false
+    );
+  });
+
+  it('sends the Gemini-generated message to the contact', async () => {
+    getThread.mockResolvedValue({ ...waitingThread });
+    await post({ From: '+15550009999', Body: 'Approve' });
+    expect(sendSms).toHaveBeenCalledWith('+15551234567',
+      "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday at 10am. Which works for you?"
+    );
+  });
+
+  it('acknowledges the organizer', async () => {
+    getThread.mockResolvedValue({ ...waitingThread });
+    const res = await post({ From: '+15550009999', Body: 'Approve' });
+    expect(res.text).toContain('Bob');
   });
 
   it('sets thread status to pending after initial review', async () => {

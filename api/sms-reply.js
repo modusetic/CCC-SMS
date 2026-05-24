@@ -1,7 +1,7 @@
 const express = require('express');
 const { getThread, saveThread } = require('../lib/kv');
 const { sendSms } = require('../lib/twilio');
-const { getNextReply, getOrganizerUpdateReply } = require('../lib/gemini');
+const { getNextReply, getOrganizerInitialContactMessage, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
 
@@ -216,27 +216,25 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res) {
   try {
     const isApproval = /\b(yes|approve|ok|confirm|confirmed|sounds good|great|perfect)\b/i.test(incomingMessage);
 
-    let smsBody;
-    if (isApproval) {
-      const n = thread.proposedTimes.length;
-      smsBody = truncate(
-        `Hi ${thread.contactName}! You can schedule for: ${listTimes(thread.proposedTimes)}. ${worksQ(n)}`
-      );
-    } else {
-      smsBody = truncate(
-        `Hi ${thread.contactName}! ${thread.organizerName} is available for: ${incomingMessage}. Which works?`
-      );
-    }
+    const aiMsg = await getOrganizerInitialContactMessage(
+      thread.organizerName,
+      thread.contactName,
+      thread.proposedTimes,
+      incomingMessage,
+      isApproval
+    );
+    const smsBody = truncate(aiMsg);
 
     thread.status = 'pending';
     thread.conversationHistory.push({ role: 'model', content: smsBody });
     await saveBoth(thread);
 
     await sendSms(thread.contactPhone, smsBody);
+    console.log(`[sms-reply] initial contact message sent to ${thread.contactPhone}: "${smsBody}"`);
 
     const reply = isApproval
       ? `Got it! I've reached out to ${thread.contactName} with the proposed times.`
-      : `Got it! I've sent ${thread.contactName} your available times.`;
+      : `Got it! I've sent ${thread.contactName} your updated availability.`;
     return res.send(twimlReply(reply));
 
   } catch (err) {

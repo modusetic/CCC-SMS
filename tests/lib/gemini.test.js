@@ -14,7 +14,7 @@ jest.mock('@google/generative-ai', () => ({
 
 process.env.GEMINI_API_KEY = 'test-api-key';
 
-const { getNextReply, getOrganizerUpdateReply } = require('../../lib/gemini');
+const { getNextReply, getOrganizerInitialContactMessage, getOrganizerUpdateReply } = require('../../lib/gemini');
 
 const mockThread = {
   organizerName: 'Alice',
@@ -70,6 +70,29 @@ describe('getNextReply', () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Sounds great!' } });
     const reply = await getNextReply(mockThread, 'Monday at 2pm');
     expect(reply).toBe('Sounds great!');
+  });
+});
+
+describe('getOrganizerInitialContactMessage', () => {
+  it('uses approved prompt when isApproval is true', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday. Which works?" } });
+    await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday at 2pm', 'Tuesday at 10am'], 'Yes', true);
+    const call = mockGenerateContent.mock.calls[0][0];
+    expect(call).toContain('Monday at 2pm');
+    expect(call).not.toContain('Yes'); // raw approval word should not appear in prompt
+  });
+
+  it('uses alternative prompt when isApproval is false', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead — does that work?" } });
+    await getOrganizerInitialContactMessage('Alice', 'Bob', ['1pm'], "I can't at 1pm, but 3pm works", false);
+    const call = mockGenerateContent.mock.calls[0][0];
+    expect(call).toContain("I can't at 1pm, but 3pm works");
+  });
+
+  it('returns the generated reply', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Ready to schedule with Alice?" } });
+    const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday'], 'Yes', true);
+    expect(reply).toBe("Hi Bob! Ready to schedule with Alice?");
   });
 });
 
