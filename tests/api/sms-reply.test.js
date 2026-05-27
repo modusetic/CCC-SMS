@@ -156,6 +156,17 @@ describe('organizer messages — initial review', () => {
       expect.objectContaining({ status: 'pending' })
     );
   });
+
+  it('returns polite error TwiML to organizer when Gemini throws during initial review', async () => {
+    getThread.mockResolvedValue({ ...waitingThread });
+    getOrganizerInitialContactMessage.mockRejectedValue(new Error('Gemini API error'));
+    const res = await post({ From: '+15550009999', Body: 'Approve' });
+    expect(res.status).toBe(200);
+    // Must not be an empty silent response
+    expect(res.text).not.toBe('<Response></Response>');
+    // Must contain a polite error message the organizer can read
+    expect(res.text).toContain('went wrong');
+  });
 });
 
 describe('organizer messages — counter-proposal approval', () => {

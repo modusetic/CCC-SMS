@@ -68,4 +68,45 @@ describe('GET /api/debug-thread', () => {
     expect(getThread).toHaveBeenCalledWith('+18325176982');
     expect(res.status).toBe(200);
   });
+
+  describe('authentication', () => {
+    const originalToken = process.env.DEBUG_TOKEN;
+
+    afterEach(() => {
+      if (originalToken === undefined) {
+        delete process.env.DEBUG_TOKEN;
+      } else {
+        process.env.DEBUG_TOKEN = originalToken;
+      }
+    });
+
+    it('returns 401 when DEBUG_TOKEN env var is set but no token is provided in request', async () => {
+      process.env.DEBUG_TOKEN = 'secret123';
+      getThread.mockResolvedValue({ ...mockThread });
+      const res = await request(app).get('/api/debug-thread?phone=+18325176982');
+      expect(res.status).toBe(401);
+      expect(res.body.error).toMatch(/unauthorized/i);
+    });
+
+    it('returns 401 when DEBUG_TOKEN is set and wrong token is provided', async () => {
+      process.env.DEBUG_TOKEN = 'secret123';
+      getThread.mockResolvedValue({ ...mockThread });
+      const res = await request(app).get('/api/debug-thread?phone=+18325176982&token=wrong');
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 200 when correct DEBUG_TOKEN is provided', async () => {
+      process.env.DEBUG_TOKEN = 'secret123';
+      getThread.mockResolvedValue({ ...mockThread });
+      const res = await request(app).get('/api/debug-thread?phone=+18325176982&token=secret123');
+      expect(res.status).toBe(200);
+    });
+
+    it('allows unauthenticated access when DEBUG_TOKEN is not set', async () => {
+      delete process.env.DEBUG_TOKEN;
+      getThread.mockResolvedValue({ ...mockThread });
+      const res = await request(app).get('/api/debug-thread?phone=+18325176982');
+      expect(res.status).toBe(200);
+    });
+  });
 });

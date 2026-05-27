@@ -418,9 +418,15 @@
   // ── Phone helpers ─────────────────────────────────────────────────────────
   // Combines the country-code select with the number input into E.164.
   // Strips any spaces/dashes the user types in the number field.
+  // Also strips a leading country-code digit if the user types it themselves
+  // (e.g. user types "18005551234" with US +1 selected → strips leading "1"
+  // to avoid "+118005551234" double-prefix which Twilio rejects).
   function getPhone(countrySelectId, numberInputId) {
-    const code   = document.getElementById(countrySelectId).value;
-    const digits = document.getElementById(numberInputId).value.trim().replace(/\D/g, '');
+    const code   = document.getElementById(countrySelectId).value; // e.g. "+1"
+    const raw    = document.getElementById(numberInputId).value.trim().replace(/\D/g, '');
+    // Strip the country code digits from the front of the input if present.
+    const codeDigits = code.replace(/\D/g, ''); // e.g. "1" from "+1"
+    const digits = raw.startsWith(codeDigits) ? raw.slice(codeDigits.length) : raw;
     return digits ? `${code}${digits}` : '';
   }
 

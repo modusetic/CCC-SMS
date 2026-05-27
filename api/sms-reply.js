@@ -239,7 +239,7 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res) {
 
   } catch (err) {
     console.error('[sms-reply] Error processing organizer initial review:', err.message);
-    return res.send('<Response></Response>');
+    return res.send(twimlReply('Sorry, something went wrong sending the message. Please try again.'));
   }
 }
 

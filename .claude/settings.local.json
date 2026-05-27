@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git check-ignore *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(npm install *)",
+      "Bash(npx jest *)"
+    ]
+  }
+}

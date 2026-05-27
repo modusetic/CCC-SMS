@@ -27,9 +27,13 @@ function timeWord(count) {
 // Normalize a phone number to E.164 (+digits).
 // Handles: '+18325176982', '18325176982', '(832) 517-6982', '832-517-6982'.
 // Twilio always sends E.164 in webhooks, so Redis keys must match that format.
+// Returns null for garbage input (fewer than 7 digits) so callers treat it as absent.
 function normalizePhone(phone) {
   if (!phone) return null;
   const stripped = phone.trim().replace(/[^\d+]/g, ''); // keep digits and +
+  // Require at least 7 digits — rejects '---', '()', '+', etc. which would
+  // otherwise produce a truthy "+" string and cause a stuck Redis thread.
+  if (stripped.replace(/[^0-9]/g, '').length < 7) return null;
   return stripped.startsWith('+') ? stripped : `+${stripped}`;
 }
 
@@ -98,6 +102,8 @@ app.post('/api/initiate', async (req, res) => {
       const orgFyi = truncate(
         `Scheduling started with ${contactName}. I've sent them your available ${timeWord(n)} and will let you know when confirmed.`
       );
+      // Record orgFyi in history so future organizer multi-turn context is complete.
+      thread.conversationHistory.push({ role: 'model', content: orgFyi });
       await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
       console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
       await sendSms(normalizedContactPhone, contactMsg);

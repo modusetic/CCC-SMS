@@ -5,3 +5,8 @@ node_modules/
 .vercel
 .worktrees
 coverage/
+
+# Google service account key files — never commit these
+*.json
+!package.json
+!package-lock.json

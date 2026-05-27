@@ -127,4 +127,48 @@ describe('POST /api/initiate — phone normalization', () => {
     await request(app).post('/api/initiate').send({ ...base, organizerPhone: '+15550009999' });
     expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
   });
+
+  it('treats garbage-only organizer phone as absent and routes to no-organizer branch', async () => {
+    sendSms.mockClear();
+    saveThread.mockClear();
+    const res = await request(app).post('/api/initiate').send({ ...base, organizerPhone: '---' });
+    expect(res.status).toBe(200);
+    // Should NOT try to send to "+" (garbage normalised result)
+    expect(sendSms).not.toHaveBeenCalledWith('+', expect.anything());
+    // Should behave as no-organizer branch: SMS the contact directly
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.any(String));
+    expect(sendSms).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats purely punctuation contact phone as invalid', async () => {
+    const res = await request(app).post('/api/initiate').send({ ...base, contactPhone: '()--' });
+    // Garbage contact phone should not result in a sendSms call to "+"
+    expect(sendSms).not.toHaveBeenCalledWith('+', expect.anything());
+  });
+});
+
+describe('POST /api/initiate — orgFyi recorded in conversationHistory', () => {
+  beforeEach(() => {
+    saveThread.mockClear();
+    sendSms.mockClear();
+  });
+
+  it('records both contactMsg and orgFyi in conversationHistory before save', async () => {
+    const body = {
+      ...base,
+      organizerPhone: '+15550009999',
+      directorAlternatives: ['Wednesday at 3pm', 'Thursday at 11am']
+    };
+    await request(app).post('/api/initiate').send(body);
+    // Find the save call for the contact phone
+    const contactSave = saveThread.mock.calls.find(c => c[0] === '+15551234567');
+    expect(contactSave).toBeDefined();
+    const savedThread = contactSave[1];
+    // History should have TWO entries: contactMsg (role:model) and orgFyi (role:model)
+    expect(savedThread.conversationHistory).toHaveLength(2);
+    expect(savedThread.conversationHistory[0].role).toBe('model');
+    expect(savedThread.conversationHistory[1].role).toBe('model');
+    // The second entry should be the orgFyi message mentioning the contact
+    expect(savedThread.conversationHistory[1].content).toContain('Bob');
+  });
 });
