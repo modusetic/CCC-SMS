@@ -145,16 +145,14 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
   }
 
   if (!thread.waitingForOrganizerApproval) {
-    // Organizer is proactively updating their availability.
-    // Add to directorAlternatives so Gemini uses it on the next contact turn,
-    // then ask Gemini to craft a proper message to the contact about the update.
-    // Don't push to conversationHistory — the last entry may already be a model
-    // turn, and two consecutive model entries break the Gemini multi-turn API.
     try {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
-      await saveBoth(thread);
       const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage);
       const smsSafe = truncate(aiMsg);
+      thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+      thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
+      thread.organizerConversationHistory.push({ role: 'model', content: `Got it! I've let ${thread.contactName} know about your updated availability.` });
+      await saveBoth(thread);
       await sendSms(thread.contactPhone, smsSafe);
       console.log(`[sms-reply] organizer unsolicited update — AI reply sent to contact ${thread.contactPhone}: "${smsSafe}"`);
       return res.send(twimlReply(`Got it! I've let ${thread.contactName} know about your updated availability.`));
@@ -185,6 +183,9 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
 
       const confirmMsg = `Great news! Your meeting with ${thread.organizerName} is confirmed for ${thread.pendingContactSuggestion}.`;
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
+      thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+      thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
+      thread.organizerConversationHistory.push({ role: 'model', content: `Confirmed! I've let ${thread.contactName} know.` });
       await saveBoth(thread);
 
       await sendSms(thread.contactPhone, confirmMsg);
@@ -200,6 +201,9 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
 
       const contactMsg = truncate(`Message from ${thread.organizerName}: ${incomingMessage}`);
+      thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+      thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
+      thread.organizerConversationHistory.push({ role: 'model', content: `Got it! I've forwarded your message to ${thread.contactName}.` });
       await saveBoth(thread);
 
       console.log(`[sms-reply] forwarding organizer alternatives to contact ${thread.contactPhone}`);
@@ -225,16 +229,20 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res) {
     );
     const smsBody = truncate(aiMsg);
 
+    const reply = isApproval
+      ? `Got it! I've reached out to ${thread.contactName} with the proposed times.`
+      : `Got it! I've sent ${thread.contactName} your updated availability.`;
+
     thread.status = 'pending';
     thread.conversationHistory.push({ role: 'model', content: smsBody });
+    thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+    thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
+    thread.organizerConversationHistory.push({ role: 'model', content: reply });
     await saveBoth(thread);
 
     await sendSms(thread.contactPhone, smsBody);
     console.log(`[sms-reply] initial contact message sent to ${thread.contactPhone}: "${smsBody}"`);
 
-    const reply = isApproval
-      ? `Got it! I've reached out to ${thread.contactName} with the proposed times.`
-      : `Got it! I've sent ${thread.contactName} your updated availability.`;
     return res.send(twimlReply(reply));
 
   } catch (err) {

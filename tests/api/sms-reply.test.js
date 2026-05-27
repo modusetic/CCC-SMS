@@ -235,3 +235,66 @@ describe('organizer messages — unsolicited availability update', () => {
     );
   });
 });
+
+describe('organizer messages — organizerConversationHistory tracking', () => {
+  const waitingThread = { ...baseThread, status: 'waiting_organizer_initial' };
+  const pendingThread = {
+    ...baseThread,
+    waitingForOrganizerApproval: true,
+    pendingContactSuggestion: 'Friday May 22 at 2pm',
+    pendingContactDatetime: '2026-05-22T14:00:00'
+  };
+
+  beforeEach(() => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    sendSms.mockClear();
+    getOrganizerInitialContactMessage.mockResolvedValue(
+      "Hey Bob! Alice wants to meet — Monday at 2pm. Which works?"
+    );
+    getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is free at 3pm instead.");
+  });
+
+  it('pushes organizer reply and system ack to organizerConversationHistory on initial review approval', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...waitingThread, organizerConversationHistory: [] });
+    await post({ From: '+15550009999', Body: 'Approve' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(2);
+    expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: 'Approve' });
+    expect(saved.organizerConversationHistory[1].role).toBe('model');
+    expect(saved.organizerConversationHistory[1].content).toContain('Bob');
+  });
+
+  it('pushes organizer reply and system ack to organizerConversationHistory on counter-proposal approval', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...pendingThread, organizerConversationHistory: [] });
+    await post({ From: '+15550009999', Body: 'Yes' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(2);
+    expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: 'Yes' });
+    expect(saved.organizerConversationHistory[1].role).toBe('model');
+    expect(saved.organizerConversationHistory[1].content).toMatch(/confirmed/i);
+  });
+
+  it('pushes organizer reply and system ack to organizerConversationHistory on rejection/alternatives', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...pendingThread, organizerConversationHistory: [] });
+    await post({ From: '+15550009999', Body: 'Monday at 3pm instead' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(2);
+    expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: 'Monday at 3pm instead' });
+    expect(saved.organizerConversationHistory[1].role).toBe('model');
+    expect(saved.organizerConversationHistory[1].content).toMatch(/forwarded/i);
+  });
+
+  it('pushes organizer reply and system ack to organizerConversationHistory on unsolicited update', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...baseThread, organizerConversationHistory: [] });
+    await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(2);
+    expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: "I can't Monday, try 3pm" });
+    expect(saved.organizerConversationHistory[1].role).toBe('model');
+  });
+});
