@@ -10,3 +10,6 @@ coverage/
 *.json
 !package.json
 !package-lock.json
+
+# Visual brainstorming session files
+.superpowers/
