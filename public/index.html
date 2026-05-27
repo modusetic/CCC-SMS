@@ -435,15 +435,15 @@
     .bubble-out {
       background: #007aff;
       color: #fff;
-      border-bottom-left-radius: 3px;
-      align-self: flex-start;
+      border-bottom-right-radius: 3px;
+      align-self: flex-end;
     }
 
     .bubble-in {
       background: #e9e9eb;
       color: #000;
-      border-bottom-right-radius: 3px;
-      align-self: flex-end;
+      border-bottom-left-radius: 3px;
+      align-self: flex-start;
     }
 
     .ios-home {
@@ -880,13 +880,17 @@
 
   function renderBubbles(containerId, history) {
     const el = document.getElementById(containerId);
+    el.innerHTML = '';
     if (!history || history.length === 0) {
       el.innerHTML = '<div class="phone-empty"><div class="phone-empty-icon">💬</div><div class="phone-empty-text">Waiting for first message…</div></div>';
       return;
     }
-    el.innerHTML = history.map(msg =>
-      `<div class="bubble ${msg.role === 'model' ? 'bubble-out' : 'bubble-in'}">${msg.content}</div>`
-    ).join('');
+    history.forEach(msg => {
+      const div = document.createElement('div');
+      div.className = `bubble ${msg.role === 'user' ? 'bubble-out' : 'bubble-in'}`;
+      div.textContent = msg.content;
+      el.appendChild(div);
+    });
     el.scrollTop = el.scrollHeight;
   }
 
