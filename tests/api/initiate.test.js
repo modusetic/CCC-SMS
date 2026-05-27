@@ -147,28 +147,41 @@ describe('POST /api/initiate — phone normalization', () => {
   });
 });
 
-describe('POST /api/initiate — orgFyi recorded in conversationHistory', () => {
+describe('POST /api/initiate — organizerConversationHistory', () => {
   beforeEach(() => {
     saveThread.mockClear();
     sendSms.mockClear();
   });
 
-  it('records both contactMsg and orgFyi in conversationHistory before save', async () => {
+  it('initializes every thread with empty organizerConversationHistory', async () => {
+    await request(app).post('/api/initiate').send(base);
+    const saved = saveThread.mock.calls[0][1];
+    expect(saved.organizerConversationHistory).toEqual([]);
+  });
+
+  it('pushes organizer review SMS to organizerConversationHistory in branch 1', async () => {
+    const body = { ...base, organizerPhone: '+15550009999' };
+    await request(app).post('/api/initiate').send(body);
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(1);
+    expect(saved.organizerConversationHistory[0].role).toBe('model');
+    expect(saved.organizerConversationHistory[0].content).toMatch(/Reply APPROVE/i);
+  });
+
+  it('puts orgFyi in organizerConversationHistory (not conversationHistory) in branch 2', async () => {
     const body = {
       ...base,
       organizerPhone: '+15550009999',
-      directorAlternatives: ['Wednesday at 3pm', 'Thursday at 11am']
+      directorAlternatives: ['Wednesday at 3pm']
     };
     await request(app).post('/api/initiate').send(body);
-    // Find the save call for the contact phone
-    const contactSave = saveThread.mock.calls.find(c => c[0] === '+15551234567');
-    expect(contactSave).toBeDefined();
-    const savedThread = contactSave[1];
-    // History should have TWO entries: contactMsg (role:model) and orgFyi (role:model)
-    expect(savedThread.conversationHistory).toHaveLength(2);
-    expect(savedThread.conversationHistory[0].role).toBe('model');
-    expect(savedThread.conversationHistory[1].role).toBe('model');
-    // The second entry should be the orgFyi message mentioning the contact
-    expect(savedThread.conversationHistory[1].content).toContain('Bob');
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    // conversationHistory must have exactly 1 entry (contactMsg only — no orgFyi)
+    expect(saved.conversationHistory).toHaveLength(1);
+    expect(saved.conversationHistory[0].role).toBe('model');
+    // organizerConversationHistory must have exactly 1 entry (orgFyi)
+    expect(saved.organizerConversationHistory).toHaveLength(1);
+    expect(saved.organizerConversationHistory[0].role).toBe('model');
+    expect(saved.organizerConversationHistory[0].content).toContain('Bob');
   });
 });

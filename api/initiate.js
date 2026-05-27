@@ -75,6 +75,7 @@ app.post('/api/initiate', async (req, res) => {
     pendingContactDatetime: null,
     attempts: 0,
     conversationHistory: [],
+    organizerConversationHistory: [],
     createdAt: new Date().toISOString()
   };
 
@@ -87,6 +88,7 @@ app.post('/api/initiate', async (req, res) => {
       const smsBody = truncate(
         `${contactName} wants to schedule. Their proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply APPROVE or with your available ${timeWord(n)}.`
       );
+      thread.organizerConversationHistory.push({ role: 'model', content: smsBody });
       await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
       console.log(`[initiate] thread ${thread.threadId} saved (waiting_organizer_initial) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
       await sendSms(normalizedOrganizerPhone, smsBody);
@@ -102,8 +104,10 @@ app.post('/api/initiate', async (req, res) => {
       const orgFyi = truncate(
         `Scheduling started with ${contactName}. I've sent them your available ${timeWord(n)} and will let you know when confirmed.`
       );
-      // Record orgFyi in history so future organizer multi-turn context is complete.
-      thread.conversationHistory.push({ role: 'model', content: orgFyi });
+      // orgFyi goes to organizerConversationHistory — NOT conversationHistory.
+      // Putting it in conversationHistory would create two consecutive 'model' entries
+      // which breaks Gemini's multi-turn API.
+      thread.organizerConversationHistory.push({ role: 'model', content: orgFyi });
       await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
       console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
       await sendSms(normalizedContactPhone, contactMsg);
