@@ -79,10 +79,12 @@ describe('GET /api/conversation', () => {
     expect(res.body.organizerConversationHistory).toEqual([]);
   });
 
-  it('returns 500 on Redis error', async () => {
+  it('returns 500 on Redis error without leaking error detail', async () => {
     getThread.mockRejectedValue(new Error('Redis timeout'));
     const res = await request(app).get('/api/conversation?phone=+15551234567');
     expect(res.status).toBe(500);
+    expect(res.body.detail).toBeUndefined();
+    expect(res.body.error).toBeDefined();
   });
 
   it('restores + sign when browser URL-encodes it as a space', async () => {

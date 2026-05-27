@@ -17,7 +17,8 @@ app.get('/api/conversation', async (req, res) => {
   try {
     thread = await getThread(phone);
   } catch (err) {
-    return res.status(500).json({ error: 'Redis lookup failed', detail: err.message });
+    console.error('[conversation] getThread error:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 
   if (!thread) {
