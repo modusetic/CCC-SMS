@@ -124,9 +124,11 @@ async function handleContactReply(thread, incomingMessage, res) {
 
       if (thread.organizerPhone) {
         console.log(`[sms-reply] pinging organizer ${thread.organizerPhone} with counter-proposal`);
-        await sendSms(thread.organizerPhone,
-          `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`
-        );
+        const counterMsg = `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`;
+        thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+        thread.organizerConversationHistory.push({ role: 'model', content: counterMsg });
+        await saveBoth(thread);
+        await sendSms(thread.organizerPhone, counterMsg);
       }
 
       return res.send(twimlReply(smsSafe));

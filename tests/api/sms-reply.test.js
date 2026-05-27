@@ -106,6 +106,23 @@ describe('contact messages — standard flow', () => {
     expect(res.text).toContain("I'll check with Alice");
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('Friday May 22 at 2pm'));
   });
+
+  it('records counter-proposal ping in organizerConversationHistory', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...baseThread, organizerConversationHistory: [] });
+    getNextReply.mockResolvedValue(JSON.stringify({
+      status: 'counter-proposal',
+      suggestedTime: 'Friday May 22 at 2pm',
+      suggestedDatetime: '2026-05-22T14:00:00',
+      reply: "I'll check with Alice and get back to you!"
+    }));
+    await post({ From: '+15551234567', Body: 'Can I do Friday at 2pm?' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(1);
+    expect(saved.organizerConversationHistory[0].role).toBe('model');
+    expect(saved.organizerConversationHistory[0].content).toContain('Friday May 22 at 2pm');
+  });
 });
 
 describe('organizer messages — initial review', () => {
