@@ -297,4 +297,25 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
     expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: "I can't Monday, try 3pm" });
     expect(saved.organizerConversationHistory[1].role).toBe('model');
   });
+
+  it('exercises defensive guard when organizerConversationHistory is undefined', async () => {
+    const { saveThread } = require('../../lib/kv');
+    // Thread has no organizerConversationHistory at all (simulates old threads from before schema update)
+    const threadWithoutHistory = { ...baseThread, organizerConversationHistory: undefined };
+    getThread.mockResolvedValue(threadWithoutHistory);
+    getNextReply.mockResolvedValue('How about Wednesday?');
+    // Just make sure it doesn't throw
+    const res = await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
+    expect(res.status).toBe(200);
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    expect(saved.organizerConversationHistory).toHaveLength(2);
+  });
+
+  it('saves updated organizerConversationHistory under the contact phone key too', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...baseThread, organizerConversationHistory: [] });
+    await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
+    const contactSaved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(contactSaved.organizerConversationHistory).toHaveLength(2);
+  });
 });

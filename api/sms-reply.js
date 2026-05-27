@@ -34,6 +34,12 @@ function worksQ(count) {
   return count === 1 ? 'Does this work for you?' : 'Which works?';
 }
 
+function pushOrganizerHistory(thread, userMsg, ackMsg) {
+  thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+  thread.organizerConversationHistory.push({ role: 'user', content: userMsg });
+  thread.organizerConversationHistory.push({ role: 'model', content: ackMsg });
+}
+
 async function saveBoth(thread) {
   const saves = [saveThread(thread.contactPhone, thread)];
   if (thread.organizerPhone) saves.push(saveThread(thread.organizerPhone, thread));
@@ -149,13 +155,12 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
       const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage);
       const smsSafe = truncate(aiMsg);
-      thread.organizerConversationHistory = thread.organizerConversationHistory || [];
-      thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
-      thread.organizerConversationHistory.push({ role: 'model', content: `Got it! I've let ${thread.contactName} know about your updated availability.` });
+      const ackMsg = `Got it! I've let ${thread.contactName} know about your updated availability.`;
+      pushOrganizerHistory(thread, incomingMessage, ackMsg);
       await saveBoth(thread);
       await sendSms(thread.contactPhone, smsSafe);
       console.log(`[sms-reply] organizer unsolicited update — AI reply sent to contact ${thread.contactPhone}: "${smsSafe}"`);
-      return res.send(twimlReply(`Got it! I've let ${thread.contactName} know about your updated availability.`));
+      return res.send(twimlReply(ackMsg));
     } catch (err) {
       console.error('[sms-reply] Error handling organizer availability update:', err.message);
       return res.send('<Response></Response>');
@@ -183,13 +188,12 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
 
       const confirmMsg = `Great news! Your meeting with ${thread.organizerName} is confirmed for ${thread.pendingContactSuggestion}.`;
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
-      thread.organizerConversationHistory = thread.organizerConversationHistory || [];
-      thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
-      thread.organizerConversationHistory.push({ role: 'model', content: `Confirmed! I've let ${thread.contactName} know.` });
+      const orgAck = `Confirmed! I've let ${thread.contactName} know.`;
+      pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 
       await sendSms(thread.contactPhone, confirmMsg);
-      return res.send(twimlReply(`Confirmed! I've let ${thread.contactName} know.`));
+      return res.send(twimlReply(orgAck));
 
     } else {
       thread.waitingForOrganizerApproval = false;
@@ -201,14 +205,13 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
 
       const contactMsg = truncate(`Message from ${thread.organizerName}: ${incomingMessage}`);
-      thread.organizerConversationHistory = thread.organizerConversationHistory || [];
-      thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
-      thread.organizerConversationHistory.push({ role: 'model', content: `Got it! I've forwarded your message to ${thread.contactName}.` });
+      const orgAck = `Got it! I've forwarded your message to ${thread.contactName}.`;
+      pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 
       console.log(`[sms-reply] forwarding organizer alternatives to contact ${thread.contactPhone}`);
       await sendSms(thread.contactPhone, contactMsg);
-      return res.send(twimlReply(`Got it! I've forwarded your message to ${thread.contactName}.`));
+      return res.send(twimlReply(orgAck));
     }
   } catch (err) {
     console.error('[sms-reply] Error processing organizer approval:', err.message);
@@ -235,9 +238,7 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res) {
 
     thread.status = 'pending';
     thread.conversationHistory.push({ role: 'model', content: smsBody });
-    thread.organizerConversationHistory = thread.organizerConversationHistory || [];
-    thread.organizerConversationHistory.push({ role: 'user', content: incomingMessage });
-    thread.organizerConversationHistory.push({ role: 'model', content: reply });
+    pushOrganizerHistory(thread, incomingMessage, reply);
     await saveBoth(thread);
 
     await sendSms(thread.contactPhone, smsBody);
