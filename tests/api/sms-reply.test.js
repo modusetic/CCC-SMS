@@ -31,6 +31,7 @@ jest.mock('../../lib/twilio', () => ({
 jest.mock('../../lib/gemini', () => ({
   getNextReply: jest.fn(),
   getOrganizerInitialContactMessage: jest.fn(),
+  getOrganizerApprovalDecision: jest.fn(),
   getOrganizerUpdateReply: jest.fn()
 }));
 
@@ -44,7 +45,7 @@ jest.mock('../../lib/email', () => ({
 
 const { getThread } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
-const { getNextReply, getOrganizerInitialContactMessage, getOrganizerUpdateReply } = require('../../lib/gemini');
+const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
 const app = require('../../api/sms-reply');
@@ -135,19 +136,19 @@ describe('organizer messages — initial review', () => {
     );
   });
 
-  it('calls Gemini to craft the contact message on approval', async () => {
+  it('calls Gemini with organizer name, contact name, proposed times, and full message', async () => {
     getThread.mockResolvedValue({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'Approve' });
     expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
-      'Alice', 'Bob', expect.any(Array), 'Approve', true
+      'Alice', 'Bob', expect.any(Array), 'Approve'
     );
   });
 
-  it('calls Gemini to craft the contact message with organizer alternatives', async () => {
+  it('passes the full organizer message to Gemini regardless of content', async () => {
     getThread.mockResolvedValue({ ...waitingThread });
-    await post({ From: '+15550009999', Body: 'Wednesday at 3pm or Thursday at 11am' });
+    await post({ From: '+15550009999', Body: "I can't June 1st but June 5 at 5pm works" });
     expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
-      'Alice', 'Bob', expect.any(Array), 'Wednesday at 3pm or Thursday at 11am', false
+      'Alice', 'Bob', expect.any(Array), "I can't June 1st but June 5 at 5pm works"
     );
   });
 
@@ -195,16 +196,39 @@ describe('organizer messages — counter-proposal approval', () => {
     pendingContactDatetime: '2026-05-22T14:00:00'
   };
 
-  it('confirms meeting when organizer replies YES', async () => {
+  it('confirms meeting when Gemini decides the organizer approved', async () => {
     getThread.mockResolvedValue({ ...pendingThread });
-    const res = await post({ From: '+15550009999', Body: 'Yes' });
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: true,
+      contactMsg: "Great news! Your meeting is confirmed for Friday May 22 at 2pm.",
+      organizerAck: "Confirmed! I've let Bob know."
+    });
+    const res = await post({ From: '+15550009999', Body: 'Yes that works' });
     expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-22T14:00:00', 'Bob', 'alice@example.com', 'America/Chicago');
     expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('confirmed'));
     expect(res.text).toContain('Confirmed');
   });
 
+  it('correctly handles "Would 5pm be OK?" as a non-approval', async () => {
+    getThread.mockResolvedValue({ ...pendingThread });
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: false,
+      contactMsg: "Alice is free June 5 at 5pm instead — does that work for you?",
+      organizerAck: "Got it! I've forwarded your message to Bob."
+    });
+    const res = await post({ From: '+15550009999', Body: "I can't June 1st but June 5 may work. Not at 4pm though. Would 5pm be OK?" });
+    expect(bookCalendarEvent).not.toHaveBeenCalled();
+    expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('5pm'));
+    expect(res.text).toContain('forwarded');
+  });
+
   it('forwards organizer alternative times to contact', async () => {
     getThread.mockResolvedValue({ ...pendingThread });
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: false,
+      contactMsg: "Alice suggests Monday at 3pm instead — does that work?",
+      organizerAck: "Got it! I've forwarded your message to Bob."
+    });
     const res = await post({ From: '+15550009999', Body: 'Monday at 3pm or Tuesday at 11am' });
     expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Monday at 3pm'));
     expect(bookCalendarEvent).not.toHaveBeenCalled();
@@ -270,6 +294,11 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
     getOrganizerInitialContactMessage.mockResolvedValue(
       "Hey Bob! Alice wants to meet — Monday at 2pm. Which works?"
     );
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: true,
+      contactMsg: "Great news! Your meeting is confirmed.",
+      organizerAck: "Confirmed! I've let Bob know."
+    });
     getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is free at 3pm instead.");
   });
 
@@ -298,6 +327,11 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   it('pushes organizer reply and system ack to organizerConversationHistory on rejection/alternatives', async () => {
     const { saveThread } = require('../../lib/kv');
     getThread.mockResolvedValue({ ...pendingThread, organizerConversationHistory: [] });
+    getOrganizerApprovalDecision.mockResolvedValueOnce({
+      approved: false,
+      contactMsg: "Alice suggests Monday at 3pm instead.",
+      organizerAck: "Got it! I've forwarded your message to Bob."
+    });
     await post({ From: '+15550009999', Body: 'Monday at 3pm instead' });
     const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
     expect(saved.organizerConversationHistory).toHaveLength(2);

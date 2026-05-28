@@ -1,7 +1,7 @@
 const express = require('express');
 const { getThread, saveThread } = require('../lib/kv');
 const { sendSms } = require('../lib/twilio');
-const { getNextReply, getOrganizerInitialContactMessage, getOrganizerUpdateReply } = require('../lib/gemini');
+const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
 
@@ -170,10 +170,15 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
   }
 
   try {
-    const isApproval = /\b(yes|approve|ok|confirm|confirmed|sounds good|great|perfect)\b/i.test(incomingMessage);
+    const decision = await getOrganizerApprovalDecision(
+      thread.organizerName,
+      thread.contactName,
+      thread.pendingContactSuggestion,
+      incomingMessage
+    );
 
-    console.log(`[sms-reply] organizer reply isApproval=${isApproval}`);
-    if (isApproval) {
+    console.log(`[sms-reply] organizer approval decision=${decision.approved}`);
+    if (decision.approved) {
       thread.status = 'confirmed';
       thread.waitingForOrganizerApproval = false;
 
@@ -188,9 +193,9 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
         await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactSuggestion);
       }
 
-      const confirmMsg = `Great news! Your meeting with ${thread.organizerName} is confirmed for ${thread.pendingContactSuggestion}.`;
+      const confirmMsg = truncate(decision.contactMsg);
+      const orgAck = truncate(decision.organizerAck);
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
-      const orgAck = `Confirmed! I've let ${thread.contactName} know.`;
       pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 
@@ -201,17 +206,17 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.waitingForOrganizerApproval = false;
       thread.pendingContactSuggestion = null;
       thread.pendingContactDatetime = null;
-      // Store organizer's suggestion as a backup time so Gemini has context on next turn.
+      // Store organizer's response as a backup time so Gemini has context on next turn.
       // Don't push to conversationHistory here — the last entry is already a model turn
       // (the holding message), and two consecutive model entries break the Gemini API.
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
 
-      const contactMsg = truncate(`Message from ${thread.organizerName}: ${incomingMessage}`);
-      const orgAck = `Got it! I've forwarded your message to ${thread.contactName}.`;
+      const contactMsg = truncate(decision.contactMsg);
+      const orgAck = truncate(decision.organizerAck);
       pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 
-      console.log(`[sms-reply] forwarding organizer alternatives to contact ${thread.contactPhone}`);
+      console.log(`[sms-reply] forwarding organizer response to contact ${thread.contactPhone}`);
       await sendSms(thread.contactPhone, contactMsg);
       return res.send(twimlReply(orgAck));
     }
@@ -223,20 +228,15 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
 
 async function handleOrganizerInitialReview(thread, incomingMessage, res) {
   try {
-    const isApproval = /\b(yes|approve|ok|confirm|confirmed|sounds good|great|perfect)\b/i.test(incomingMessage);
-
     const aiMsg = await getOrganizerInitialContactMessage(
       thread.organizerName,
       thread.contactName,
       thread.proposedTimes,
-      incomingMessage,
-      isApproval
+      incomingMessage
     );
     const smsBody = truncate(aiMsg);
 
-    const reply = isApproval
-      ? `Got it! I've reached out to ${thread.contactName} with the proposed times.`
-      : `Got it! I've sent ${thread.contactName} your updated availability.`;
+    const reply = `Got it! I've reached out to ${thread.contactName} with your availability.`;
 
     thread.status = 'pending';
     thread.conversationHistory.push({ role: 'model', content: smsBody });

@@ -14,7 +14,7 @@ jest.mock('@google/generative-ai', () => ({
 
 process.env.GEMINI_API_KEY = 'test-api-key';
 
-const { getNextReply, getOrganizerInitialContactMessage, getOrganizerUpdateReply } = require('../../lib/gemini');
+const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../../lib/gemini');
 
 const mockThread = {
   organizerName: 'Alice',
@@ -74,25 +74,72 @@ describe('getNextReply', () => {
 });
 
 describe('getOrganizerInitialContactMessage', () => {
-  it('uses approved prompt when isApproval is true', async () => {
+  it('includes the original proposed times in the prompt', async () => {
     mockGenerateContent.mockResolvedValue({ response: { text: () => "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday. Which works?" } });
-    await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday at 2pm', 'Tuesday at 10am'], 'Yes', true);
+    await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday at 2pm', 'Tuesday at 10am'], 'Sounds good, go ahead');
     const call = mockGenerateContent.mock.calls[0][0];
     expect(call).toContain('Monday at 2pm');
-    expect(call).not.toContain('Yes'); // raw approval word should not appear in prompt
+    expect(call).toContain('Tuesday at 10am');
   });
 
-  it('uses alternative prompt when isApproval is false', async () => {
+  it('includes the full organizer message in the prompt', async () => {
     mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead — does that work?" } });
-    await getOrganizerInitialContactMessage('Alice', 'Bob', ['1pm'], "I can't at 1pm, but 3pm works", false);
+    await getOrganizerInitialContactMessage('Alice', 'Bob', ['1pm'], "I can't at 1pm, but 3pm works");
     const call = mockGenerateContent.mock.calls[0][0];
     expect(call).toContain("I can't at 1pm, but 3pm works");
   });
 
   it('returns the generated reply', async () => {
     mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Ready to schedule with Alice?" } });
-    const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday'], 'Yes', true);
+    const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday'], 'Yes please');
     expect(reply).toBe("Hi Bob! Ready to schedule with Alice?");
+  });
+});
+
+describe('getOrganizerApprovalDecision', () => {
+  it('returns parsed JSON from Gemini', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"approved":true,"contactMsg":"Great, confirmed!","organizerAck":"Confirmed!"}' }
+    });
+    const result = await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday at 2pm', 'Yes that works');
+    expect(result.approved).toBe(true);
+    expect(result.contactMsg).toBe('Great, confirmed!');
+    expect(result.organizerAck).toBe('Confirmed!');
+  });
+
+  it('returns approved:false when organizer declines', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"approved":false,"contactMsg":"Alice suggests Monday instead.","organizerAck":"Got it!"}' }
+    });
+    const result = await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday at 2pm', "Friday doesn't work, try Monday");
+    expect(result.approved).toBe(false);
+  });
+
+  it('falls back to approved:false when Gemini returns invalid JSON', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Sorry, I cannot help with that.' } });
+    const result = await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday at 2pm', 'some reply');
+    expect(result.approved).toBe(false);
+    expect(result.contactMsg).toBeDefined();
+    expect(result.organizerAck).toBeDefined();
+  });
+
+  it('strips ```json markdown before parsing', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '```json\n{"approved":true,"contactMsg":"Confirmed!","organizerAck":"Great!"}\n```' }
+    });
+    const result = await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday at 2pm', 'Yes');
+    expect(result.approved).toBe(true);
+  });
+
+  it('includes organizer name, contact name, and pending time in the prompt', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"approved":true,"contactMsg":"Confirmed!","organizerAck":"Great!"}' }
+    });
+    await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday at 2pm', 'Yes');
+    const call = mockGenerateContent.mock.calls[0][0];
+    expect(call).toContain('Alice');
+    expect(call).toContain('Bob');
+    expect(call).toContain('Friday at 2pm');
   });
 });
 
