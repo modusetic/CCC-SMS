@@ -48,4 +48,14 @@ describe('sendOrganizerEmail', () => {
     expect(mailOptions.text).toContain('2026');
     expect(mailOptions.text).not.toContain('UTC');
   });
+
+  it('interprets naive datetime as local time in timezone, not UTC', async () => {
+    mockSendMail.mockResolvedValue({ messageId: 'msg-abc' });
+    // 8am Chicago time — a UTC server would wrongly show 3am CDT without the fix
+    await sendOrganizerEmail('org@example.com', 'Alice', 'Bob', '2026-06-04T08:00:00', 'America/Chicago');
+
+    const mailOptions = mockSendMail.mock.calls[0][0];
+    expect(mailOptions.text).toContain('08:00 AM');
+    expect(mailOptions.text).not.toContain('03:00 AM');
+  });
 });

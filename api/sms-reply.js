@@ -148,6 +148,14 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
       await saveBoth(thread);
 
+      if (thread.organizerPhone) {
+        const orgConfirmMsg = truncate(
+          `${thread.contactName} confirmed! Meeting on ${formatConfirmedTime(parsed.datetime)}.`,
+          settings.maxMessageLength
+        );
+        await sendSms(thread.organizerPhone, orgConfirmMsg);
+      }
+
       return res.send(twimlReply(confirmMsg));
 
     } else if (parsed?.status === 'counter-proposal' && parsed?.suggestedTime) {

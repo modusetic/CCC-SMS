@@ -106,6 +106,13 @@ describe('contact messages — standard flow', () => {
     expect(res.text).toContain('<Response>');
   });
 
+  it('SMSes organizer with confirmed time when contact confirms directly', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('May 12 at 2:00 PM'));
+  });
+
   it('books calendar and emails organizer on confirmed JSON', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
