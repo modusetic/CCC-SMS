@@ -45,7 +45,8 @@ app.post('/api/initiate', async (req, res) => {
     organizerEmail,
     organizerPhone,
     proposedTimes,
-    directorAlternatives
+    directorAlternatives,
+    timezone
   } = req.body;
 
   if (!contactName || !contactPhone || !organizerName || !organizerEmail || !proposedTimes?.length) {
@@ -69,6 +70,7 @@ app.post('/api/initiate', async (req, res) => {
     organizerPhone: normalizedOrganizerPhone,
     proposedTimes,
     directorAlternatives: backupTimes,
+    timezone: timezone || process.env.TIMEZONE || 'America/New_York',
     status: 'pending',
     waitingForOrganizerApproval: false,
     pendingContactSuggestion: null,

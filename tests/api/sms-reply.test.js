@@ -9,6 +9,7 @@ const baseThread = {
   organizerPhone: '+15550009999',
   proposedTimes: ['Monday at 2pm', 'Tuesday at 10am'],
   directorAlternatives: [],
+  timezone: 'America/Chicago',
   status: 'pending',
   waitingForOrganizerApproval: false,
   pendingContactSuggestion: null,
@@ -83,7 +84,7 @@ describe('contact messages — standard flow', () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-12T14:00:00', 'Bob', 'alice@example.com');
+    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-12T14:00:00', 'Bob', 'alice@example.com', 'America/Chicago');
     expect(sendOrganizerEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Bob', '2026-05-12T14:00:00');
   });
 
@@ -197,7 +198,7 @@ describe('organizer messages — counter-proposal approval', () => {
   it('confirms meeting when organizer replies YES', async () => {
     getThread.mockResolvedValue({ ...pendingThread });
     const res = await post({ From: '+15550009999', Body: 'Yes' });
-    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-22T14:00:00', 'Bob', 'alice@example.com');
+    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-22T14:00:00', 'Bob', 'alice@example.com', 'America/Chicago');
     expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('confirmed'));
     expect(res.text).toContain('Confirmed');
   });

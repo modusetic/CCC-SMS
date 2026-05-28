@@ -98,7 +98,7 @@ async function handleContactReply(thread, incomingMessage, res) {
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
 
       try {
-        await bookCalendarEvent(parsed.datetime, thread.contactName, thread.organizerEmail);
+        await bookCalendarEvent(parsed.datetime, thread.contactName, thread.organizerEmail, thread.timezone);
       } catch (calErr) {
         console.error('[sms-reply] Calendar booking failed (non-fatal):', calErr.message);
       }
@@ -179,7 +179,7 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
 
       if (thread.pendingContactDatetime) {
         try {
-          await bookCalendarEvent(thread.pendingContactDatetime, thread.contactName, thread.organizerEmail);
+          await bookCalendarEvent(thread.pendingContactDatetime, thread.contactName, thread.organizerEmail, thread.timezone);
         } catch (calErr) {
           console.error('[sms-reply] Calendar booking failed (non-fatal):', calErr.message);
         }

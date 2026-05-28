@@ -608,6 +608,54 @@
       <p class="hint">If provided, the organizer will receive an SMS when the contact suggests an alternative time.</p>
     </div>
 
+    <div class="field">
+      <label for="timezone">Timezone</label>
+      <div class="select-wrap">
+        <select id="timezone">
+          <optgroup label="United States">
+            <option value="America/New_York">Eastern (ET)</option>
+            <option value="America/Chicago">Central (CT)</option>
+            <option value="America/Denver">Mountain (MT)</option>
+            <option value="America/Phoenix">Arizona (no DST)</option>
+            <option value="America/Los_Angeles">Pacific (PT)</option>
+            <option value="America/Anchorage">Alaska (AKT)</option>
+            <option value="Pacific/Honolulu">Hawaii (HT)</option>
+          </optgroup>
+          <optgroup label="Canada &amp; Mexico">
+            <option value="America/Toronto">Toronto</option>
+            <option value="America/Vancouver">Vancouver</option>
+            <option value="America/Mexico_City">Mexico City</option>
+          </optgroup>
+          <optgroup label="Latin America">
+            <option value="America/Bogota">Bogotá</option>
+            <option value="America/Lima">Lima</option>
+            <option value="America/Santiago">Santiago</option>
+            <option value="America/Sao_Paulo">São Paulo</option>
+            <option value="America/Argentina/Buenos_Aires">Buenos Aires</option>
+          </optgroup>
+          <optgroup label="Europe">
+            <option value="Europe/London">London (GMT/BST)</option>
+            <option value="Europe/Paris">Paris / Berlin (CET)</option>
+            <option value="Europe/Madrid">Madrid / Rome</option>
+            <option value="Europe/Helsinki">Helsinki / Athens (EET)</option>
+          </optgroup>
+          <optgroup label="Middle East &amp; Africa">
+            <option value="Asia/Dubai">Dubai (GST)</option>
+            <option value="Africa/Johannesburg">Johannesburg (SAST)</option>
+          </optgroup>
+          <optgroup label="Asia &amp; Pacific">
+            <option value="Asia/Kolkata">India (IST)</option>
+            <option value="Asia/Bangkok">Bangkok / Jakarta</option>
+            <option value="Asia/Shanghai">Shanghai / Beijing (CST)</option>
+            <option value="Asia/Tokyo">Tokyo (JST)</option>
+            <option value="Asia/Seoul">Seoul (KST)</option>
+            <option value="Australia/Sydney">Sydney (AEDT)</option>
+            <option value="Pacific/Auckland">Auckland (NZST)</option>
+          </optgroup>
+        </select>
+      </div>
+    </div>
+
     <hr class="divider" />
     <div class="section-label-row">
       <span class="section-label">Director Backup Times</span>
@@ -816,6 +864,16 @@
     toast.style.display = 'block';
   }
 
+  function detectTimezone() {
+    const sel = document.getElementById('timezone');
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Only update if detected value exists as one of our options
+    if (detected && sel.querySelector(`option[value="${CSS.escape(detected)}"]`)) {
+      sel.value = detected;
+    }
+  }
+  detectTimezone();
+
   document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -824,6 +882,7 @@
 
     const contactPhone   = getPhone('contactCountry',  'contactPhone');
     const organizerPhone = getPhone('organizerCountry', 'organizerPhone');
+    const timezone       = document.getElementById('timezone').value;
 
     const payload = {
       contactName:    document.getElementById('contactName').value.trim(),
@@ -831,6 +890,7 @@
       organizerName:  document.getElementById('organizerName').value.trim(),
       organizerEmail: document.getElementById('organizerEmail').value.trim(),
       proposedTimes,
+      timezone,
       ...(organizerPhone && { organizerPhone }),
       ...(backupSlots.length > 0 && { directorAlternatives: backupSlots })
     };
@@ -863,6 +923,7 @@
         list.innerHTML = '';
         list.appendChild(buildRow('timesList'));
         document.getElementById('backupTimesList').innerHTML = '';
+        detectTimezone();
       } else {
         showToast(data.error || 'Something went wrong. Please try again.', 'error');
       }
