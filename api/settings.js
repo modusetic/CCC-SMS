@@ -4,6 +4,10 @@ const { getSettings, saveSettings } = require('../lib/settings');
 const app = express();
 app.use(express.json());
 
+// No authentication — this app is used in testing/demo contexts where the operator
+// controls access to the UI. If deploying in a multi-tenant environment, gate POST
+// behind a token (see api/debug-thread.js for the DEBUG_TOKEN pattern).
+
 app.get('/api/settings', async (req, res) => {
   try {
     const settings = await getSettings();

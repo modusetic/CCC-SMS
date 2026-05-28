@@ -27,8 +27,8 @@ function truncate(text, limit = 160) {
 
 function applyTemplate(template, vars) {
   return template
-    .replace(/\{contactName\}/g, vars.contactName || '')
-    .replace(/\{organizerName\}/g, vars.organizerName || '');
+    .replace(/\{contactName\}/g, () => vars.contactName || '')
+    .replace(/\{organizerName\}/g, () => vars.organizerName || '');
 }
 
 function listTimes(times) {
