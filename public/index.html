@@ -890,6 +890,66 @@
 
 </div><!-- /.workspace -->
 
+<!-- ── Settings backdrop ── -->
+<div class="settings-backdrop" id="settingsBackdrop"></div>
+
+<!-- ── Settings panel ── -->
+<div class="settings-panel" id="settingsPanel" role="dialog" aria-label="AI Settings">
+  <div class="settings-panel-header">
+    <span class="settings-panel-title">AI Settings</span>
+    <button type="button" class="settings-close-btn" id="closeSettingsBtn" aria-label="Close">&#x2715;</button>
+  </div>
+
+  <div class="settings-panel-body">
+
+    <div class="settings-section">
+      <p class="settings-section-label">AI Behavior</p>
+
+      <div class="settings-field">
+        <label for="s_assistantName">Assistant name</label>
+        <input type="text" id="s_assistantName" maxlength="40" />
+      </div>
+
+      <div class="settings-field">
+        <label for="s_tone">Tone / personality</label>
+        <textarea id="s_tone" rows="3" maxlength="300"></textarea>
+        <p class="hint">Describe the assistant's voice, e.g. "Be warm, concise, and professional."</p>
+      </div>
+
+      <div class="settings-field">
+        <label for="s_maxMessageLength">Max message length (chars)</label>
+        <input type="number" id="s_maxMessageLength" min="50" max="320" />
+      </div>
+
+      <div class="settings-field">
+        <label for="s_maxExchanges">Max exchanges before giving up</label>
+        <input type="number" id="s_maxExchanges" min="2" max="20" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <p class="settings-section-label">SMS Templates</p>
+
+      <div class="settings-field">
+        <label for="s_holdingMessage">Holding message</label>
+        <textarea id="s_holdingMessage" rows="3" maxlength="320"></textarea>
+        <p class="hint">Sent to the contact while waiting for organizer review. Supports {contactName} and {organizerName}.</p>
+      </div>
+
+      <div class="settings-field">
+        <label for="s_confirmationMessage">Confirmation message</label>
+        <textarea id="s_confirmationMessage" rows="3" maxlength="320"></textarea>
+        <p class="hint">Sent to the contact when the meeting is confirmed. Supports {contactName} and {organizerName}.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="settings-panel-footer">
+    <button type="button" class="settings-save-btn" id="saveSettingsBtn">Save settings</button>
+  </div>
+</div>
+
 <script>
   // ── Time options: 7:00 AM – 8:00 PM in 30-min increments ─────────────────
   const TIME_OPTIONS = (() => {
@@ -1232,66 +1292,6 @@
   document.getElementById('settingsBackdrop').addEventListener('click', closeSettings);
   document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
 </script>
-
-<!-- ── Settings backdrop ── -->
-<div class="settings-backdrop" id="settingsBackdrop"></div>
-
-<!-- ── Settings panel ── -->
-<div class="settings-panel" id="settingsPanel" role="dialog" aria-label="AI Settings">
-  <div class="settings-panel-header">
-    <span class="settings-panel-title">AI Settings</span>
-    <button type="button" class="settings-close-btn" id="closeSettingsBtn" aria-label="Close">&#x2715;</button>
-  </div>
-
-  <div class="settings-panel-body">
-
-    <div class="settings-section">
-      <p class="settings-section-label">AI Behavior</p>
-
-      <div class="settings-field">
-        <label for="s_assistantName">Assistant name</label>
-        <input type="text" id="s_assistantName" maxlength="40" />
-      </div>
-
-      <div class="settings-field">
-        <label for="s_tone">Tone / personality</label>
-        <textarea id="s_tone" rows="3" maxlength="300"></textarea>
-        <p class="hint">Describe the assistant's voice, e.g. "Be warm, concise, and professional."</p>
-      </div>
-
-      <div class="settings-field">
-        <label for="s_maxMessageLength">Max message length (chars)</label>
-        <input type="number" id="s_maxMessageLength" min="50" max="320" />
-      </div>
-
-      <div class="settings-field">
-        <label for="s_maxExchanges">Max exchanges before giving up</label>
-        <input type="number" id="s_maxExchanges" min="2" max="20" />
-      </div>
-    </div>
-
-    <div class="settings-section">
-      <p class="settings-section-label">SMS Templates</p>
-
-      <div class="settings-field">
-        <label for="s_holdingMessage">Holding message</label>
-        <textarea id="s_holdingMessage" rows="3" maxlength="320"></textarea>
-        <p class="hint">Sent to the contact while waiting for organizer review. Supports {contactName} and {organizerName}.</p>
-      </div>
-
-      <div class="settings-field">
-        <label for="s_confirmationMessage">Confirmation message</label>
-        <textarea id="s_confirmationMessage" rows="3" maxlength="320"></textarea>
-        <p class="hint">Sent to the contact when the meeting is confirmed. Supports {contactName} and {organizerName}.</p>
-      </div>
-    </div>
-
-  </div>
-
-  <div class="settings-panel-footer">
-    <button type="button" class="settings-save-btn" id="saveSettingsBtn">Save settings</button>
-  </div>
-</div>
 
 </body>
 </html>
