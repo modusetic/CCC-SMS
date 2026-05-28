@@ -97,6 +97,15 @@ describe('contact messages — standard flow', () => {
     expect(getNextReply).not.toHaveBeenCalled();
   });
 
+  it('falls back to defaults when getSettings fails and still responds', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    getSettings.mockRejectedValue(new Error('Redis timeout'));
+    getNextReply.mockResolvedValue('How about Wednesday?');
+    const res = await post({ From: '+15551234567', Body: 'Monday does not work' });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('<Response>');
+  });
+
   it('books calendar and emails organizer on confirmed JSON', async () => {
     getThread.mockResolvedValue({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');

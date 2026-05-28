@@ -4,7 +4,7 @@ const { sendSms } = require('../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
-const { getSettings } = require('../lib/settings');
+const { getSettings, DEFAULTS } = require('../lib/settings');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -77,12 +77,7 @@ app.post('/api/sms-reply', async (req, res) => {
     settings = await getSettings();
   } catch (err) {
     console.error('[sms-reply] getSettings error (using defaults):', err.message);
-    settings = {
-      assistantName: 'Alex', tone: 'Be conversational and polite.',
-      maxMessageLength: 160, maxExchanges: 6,
-      holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
-      confirmationMessage: "Your meeting with {organizerName} is confirmed! You'll receive details soon."
-    };
+    settings = { ...DEFAULTS };
   }
 
   const role = thread.organizerPhone && from === thread.organizerPhone ? 'organizer' : 'contact';
@@ -101,10 +96,13 @@ app.post('/api/sms-reply', async (req, res) => {
 
 async function handleContactReply(thread, incomingMessage, res, settings) {
   if (thread.status === 'waiting_organizer_initial') {
-    const msg = applyTemplate(settings.holdingMessage, {
-      contactName: thread.contactName,
-      organizerName: thread.organizerName
-    });
+    const msg = truncate(
+      applyTemplate(settings.holdingMessage, {
+        contactName: thread.contactName,
+        organizerName: thread.organizerName
+      }),
+      settings.maxMessageLength
+    );
     return res.send(twimlReply(msg));
   }
 
