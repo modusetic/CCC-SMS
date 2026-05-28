@@ -49,6 +49,27 @@ describe('getNextReply', () => {
     );
   });
 
+  it('includes proposedTimes in system prompt when provided', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    const threadWithTimes = { ...mockThread, proposedTimes: ['Friday June 6 at 6pm', 'Saturday June 7 at 10am'] };
+    await getNextReply(threadWithTimes, 'Neither works');
+    expect(mockGetGenerativeModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemInstruction: expect.stringContaining('Friday June 6 at 6pm')
+      })
+    );
+  });
+
+  it('includes last model message as context in system prompt', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    await getNextReply(mockThread, 'Monday works!');
+    expect(mockGetGenerativeModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemInstruction: expect.stringContaining('Hi Bob! Available: Monday at 2pm. Which works?')
+      })
+    );
+  });
+
   it('passes history to startChat starting from first user turn, dropping leading model entries', async () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
     await getNextReply(mockThread, 'Monday works!');

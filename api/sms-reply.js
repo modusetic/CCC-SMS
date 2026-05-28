@@ -280,6 +280,7 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res, settin
     const reply = `Got it! I've reached out to ${thread.contactName} with your availability.`;
 
     thread.status = 'pending';
+    thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
     thread.conversationHistory.push({ role: 'model', content: smsBody });
     pushOrganizerHistory(thread, incomingMessage, reply);
     await saveBoth(thread);

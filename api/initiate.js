@@ -88,7 +88,7 @@ app.post('/api/initiate', async (req, res) => {
       thread.status = 'waiting_organizer_initial';
       const n = proposedTimes.length;
       const smsBody = truncate(
-        `${contactName} wants to schedule. Their proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply APPROVE or with your available ${timeWord(n)}.`
+        `${contactName} wants to schedule. Proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply to confirm or suggest different times.`
       );
       thread.organizerConversationHistory.push({ role: 'model', content: smsBody });
       await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);

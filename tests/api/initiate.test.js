@@ -165,7 +165,7 @@ describe('POST /api/initiate — organizerConversationHistory', () => {
     const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
     expect(saved.organizerConversationHistory).toHaveLength(1);
     expect(saved.organizerConversationHistory[0].role).toBe('model');
-    expect(saved.organizerConversationHistory[0].content).toMatch(/Reply APPROVE/i);
+    expect(saved.organizerConversationHistory[0].content).toMatch(/Reply to confirm/i);
   });
 
   it('puts orgFyi in organizerConversationHistory (not conversationHistory) in branch 2', async () => {

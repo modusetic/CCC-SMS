@@ -198,6 +198,18 @@ describe('organizer messages — initial review', () => {
     expect(res.text).toContain('Bob');
   });
 
+  it('stores organizer initial review message in directorAlternatives', async () => {
+    const { saveThread } = require('../../lib/kv');
+    getThread.mockResolvedValue({ ...waitingThread });
+    await post({ From: '+15550009999', Body: 'I can only meet June 13 at 5pm' });
+    expect(saveThread).toHaveBeenCalledWith(
+      '+15551234567',
+      expect.objectContaining({
+        directorAlternatives: expect.arrayContaining(['I can only meet June 13 at 5pm'])
+      })
+    );
+  });
+
   it('sets thread status to pending after initial review', async () => {
     const { saveThread } = require('../../lib/kv');
     getThread.mockResolvedValue({ ...waitingThread });
