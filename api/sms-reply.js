@@ -124,7 +124,7 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       } catch (calErr) {
         console.error('[sms-reply] Calendar booking failed (non-fatal):', calErr.message);
       }
-      await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, parsed.datetime);
+      await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, parsed.datetime, thread.timezone);
 
       const confirmMsg = truncate(
         applyTemplate(settings.confirmationMessage, {
@@ -214,9 +214,9 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
         } catch (calErr) {
           console.error('[sms-reply] Calendar booking failed (non-fatal):', calErr.message);
         }
-        await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactDatetime);
+        await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactDatetime, thread.timezone);
       } else {
-        await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactSuggestion);
+        await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactSuggestion, thread.timezone);
       }
 
       const confirmMsg = truncate(decision.contactMsg, settings.maxMessageLength);

@@ -111,7 +111,7 @@ describe('contact messages — standard flow', () => {
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-12T14:00:00', 'Bob', 'alice@example.com', 'America/Chicago');
-    expect(sendOrganizerEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Bob', '2026-05-12T14:00:00');
+    expect(sendOrganizerEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Bob', '2026-05-12T14:00:00', 'America/Chicago');
   });
 
   it('returns confirmation TwiML to contact after booking', async () => {
