@@ -169,3 +169,41 @@ describe('getOrganizerUpdateReply', () => {
     );
   });
 });
+
+describe('settings values used in prompts', () => {
+  beforeEach(() => mockGetGenerativeModel.mockClear());
+
+  it('buildSystemPrompt uses assistantName from settings', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'ok' } });
+    const threadWithTz = { ...mockThread, timezone: 'America/Chicago' };
+    await getNextReply(threadWithTz, 'hello', { assistantName: 'Sam', tone: 'Be terse.', maxMessageLength: 120, maxExchanges: 4 });
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('Sam');
+    expect(systemInstruction).toContain('Be terse.');
+    expect(systemInstruction).toContain('120');
+    expect(systemInstruction).toContain('4');
+  });
+
+  it('getOrganizerInitialContactMessage uses assistantName and maxMessageLength', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi!' } });
+    await getOrganizerInitialContactMessage('Alice', 'Bob', ['Mon'], 'Approve', { assistantName: 'Sam', maxMessageLength: 100 });
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('Sam');
+    expect(systemInstruction).toContain('100');
+  });
+
+  it('getOrganizerUpdateReply uses assistantName and maxMessageLength', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi!' } });
+    await getOrganizerUpdateReply('Alice', 'Bob', 'Try 3pm', { assistantName: 'Sam', maxMessageLength: 100 });
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('Sam');
+    expect(systemInstruction).toContain('100');
+  });
+
+  it('getOrganizerApprovalDecision uses maxMessageLength in prompt', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => '{"approved":true,"contactMsg":"ok","organizerAck":"ok"}' } });
+    await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday 2pm', 'Yes', { maxMessageLength: 80 });
+    const call = mockGenerateContent.mock.calls[0][0];
+    expect(call).toContain('80');
+  });
+});
