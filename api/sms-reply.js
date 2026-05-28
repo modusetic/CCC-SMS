@@ -42,6 +42,14 @@ function applyTemplate(template, vars) {
     .replace(/\{confirmedDatetime\}/g, () => vars.confirmedDatetime || 'the agreed time');
 }
 
+async function demoSendSms(phone, message, demoMode) {
+  if (demoMode) {
+    console.log(`[demo] SMS suppressed → ${phone}: "${message}"`);
+    return;
+  }
+  return sendSms(phone, message);
+}
+
 function listTimes(times) {
   return times.length === 1
     ? times[0]
@@ -153,7 +161,7 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
           `${thread.contactName} confirmed! Meeting on ${formatConfirmedTime(parsed.datetime)}.`,
           settings.maxMessageLength
         );
-        await sendSms(thread.organizerPhone, orgConfirmMsg);
+        await demoSendSms(thread.organizerPhone, orgConfirmMsg, settings.demoMode);
       }
 
       return res.send(twimlReply(confirmMsg));
@@ -176,7 +184,7 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
         thread.organizerConversationHistory = thread.organizerConversationHistory || [];
         thread.organizerConversationHistory.push({ role: 'model', content: counterMsg });
         await saveBoth(thread);
-        await sendSms(thread.organizerPhone, counterMsg);
+        await demoSendSms(thread.organizerPhone, counterMsg, settings.demoMode);
       }
 
       return res.send(twimlReply(smsSafe));
@@ -208,7 +216,7 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
       const ackMsg = `Got it! I've let ${thread.contactName} know about your updated availability.`;
       pushOrganizerHistory(thread, incomingMessage, ackMsg);
       await saveBoth(thread);
-      await sendSms(thread.contactPhone, smsSafe);
+      await demoSendSms(thread.contactPhone, smsSafe, settings.demoMode);
       console.log(`[sms-reply] organizer unsolicited update — AI reply sent to contact ${thread.contactPhone}: "${smsSafe}"`);
       return res.send(twimlReply(ackMsg));
     } catch (err) {
@@ -245,7 +253,7 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
       pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 
-      await sendSms(thread.contactPhone, confirmMsg);
+      await demoSendSms(thread.contactPhone, confirmMsg, settings.demoMode);
       return res.send(twimlReply(orgAck));
 
     } else {
@@ -260,7 +268,7 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
       await saveBoth(thread);
 
       console.log(`[sms-reply] forwarding organizer response to contact ${thread.contactPhone}`);
-      await sendSms(thread.contactPhone, contactMsg);
+      await demoSendSms(thread.contactPhone, contactMsg, settings.demoMode);
       return res.send(twimlReply(orgAck));
     }
   } catch (err) {
@@ -285,7 +293,7 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res, settin
     pushOrganizerHistory(thread, incomingMessage, reply);
     await saveBoth(thread);
 
-    await sendSms(thread.contactPhone, smsBody);
+    await demoSendSms(thread.contactPhone, smsBody, settings.demoMode);
     console.log(`[sms-reply] initial contact message sent to ${thread.contactPhone}: "${smsBody}"`);
 
     return res.send(twimlReply(reply));

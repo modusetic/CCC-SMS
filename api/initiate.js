@@ -2,6 +2,15 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { saveThread } = require('../lib/kv');
 const { sendSms } = require('../lib/twilio');
+const { getSettings, DEFAULTS } = require('../lib/settings');
+
+async function demoSendSms(phone, message, demoMode) {
+  if (demoMode) {
+    console.log(`[demo] SMS suppressed → ${phone}: "${message}"`);
+    return;
+  }
+  return sendSms(phone, message);
+}
 
 const app = express();
 app.use(express.json());
@@ -55,6 +64,11 @@ app.post('/api/initiate', async (req, res) => {
     });
   }
 
+  let settings;
+  try { settings = await getSettings(); }
+  catch (_) { settings = { ...DEFAULTS }; }
+  const demoMode = settings.demoMode || false;
+
   const normalizedContactPhone  = normalizePhone(contactPhone);
   const normalizedOrganizerPhone = normalizePhone(organizerPhone);
   const hasOrganizerPhone = Boolean(normalizedOrganizerPhone);
@@ -93,7 +107,7 @@ app.post('/api/initiate', async (req, res) => {
       thread.organizerConversationHistory.push({ role: 'model', content: smsBody });
       await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
       console.log(`[initiate] thread ${thread.threadId} saved (waiting_organizer_initial) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
-      await sendSms(normalizedOrganizerPhone, smsBody);
+      await demoSendSms(normalizedOrganizerPhone, smsBody, demoMode);
 
     } else if (hasOrganizerPhone && hasBackupTimes) {
       // Organizer pre-approved backup times — send to contact immediately, FYI to organizer.
@@ -112,8 +126,8 @@ app.post('/api/initiate', async (req, res) => {
       thread.organizerConversationHistory.push({ role: 'model', content: orgFyi });
       await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
       console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
-      await sendSms(normalizedContactPhone, contactMsg);
-      await sendSms(normalizedOrganizerPhone, orgFyi);
+      await demoSendSms(normalizedContactPhone, contactMsg, demoMode);
+      await demoSendSms(normalizedOrganizerPhone, orgFyi, demoMode);
 
     } else {
       // No organizer phone — send contact the proposed times directly.
@@ -125,7 +139,7 @@ app.post('/api/initiate', async (req, res) => {
       thread.conversationHistory.push({ role: 'model', content: smsBody });
       await saveThread(normalizedContactPhone, thread);
       console.log(`[initiate] thread ${thread.threadId} saved (pending, no organizer) contact=${normalizedContactPhone}`);
-      await sendSms(normalizedContactPhone, smsBody);
+      await demoSendSms(normalizedContactPhone, smsBody, demoMode);
     }
 
     res.status(200).json({ threadId: thread.threadId, message: 'Scheduling initiated' });

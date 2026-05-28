@@ -74,4 +74,22 @@ describe('saveSettings', () => {
     const err = await saveSettings({ maxExchanges: 99 }).catch(e => e);
     expect(err.isValidation).toBe(true);
   });
+
+  it('saves demoMode boolean and returns it', async () => {
+    redis._mockGet.mockResolvedValue(null);
+    redis._mockSet.mockResolvedValue('OK');
+    const result = await saveSettings({ demoMode: true });
+    expect(result.demoMode).toBe(true);
+  });
+
+  it('throws validation error when demoMode is not a boolean', async () => {
+    await expect(saveSettings({ demoMode: 'yes' }))
+      .rejects.toThrow(/demoMode/);
+  });
+});
+
+describe('DEFAULTS', () => {
+  it('demoMode defaults to false', () => {
+    expect(DEFAULTS.demoMode).toBe(false);
+  });
 });

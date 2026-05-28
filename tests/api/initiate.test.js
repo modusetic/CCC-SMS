@@ -10,8 +10,20 @@ jest.mock('../../lib/twilio', () => ({
 
 jest.mock('uuid', () => ({ v4: () => 'test-uuid-1234' }));
 
+jest.mock('../../lib/settings', () => ({
+  getSettings: jest.fn().mockResolvedValue({
+    assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+    holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false
+  }),
+  DEFAULTS: {
+    assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+    holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false
+  }
+}));
+
 const { saveThread } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
+const { getSettings } = require('../../lib/settings');
 const app = require('../../api/initiate');
 
 const base = {
@@ -183,5 +195,31 @@ describe('POST /api/initiate — organizerConversationHistory', () => {
     expect(saved.organizerConversationHistory).toHaveLength(1);
     expect(saved.organizerConversationHistory[0].role).toBe('model');
     expect(saved.organizerConversationHistory[0].content).toContain('Bob');
+  });
+});
+
+describe('Demo Mode — SMS suppression', () => {
+  beforeEach(() => {
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
+    });
+  });
+
+  it('does not SMS organizer when demoMode is true (branch 1)', async () => {
+    const body = { ...base, organizerPhone: '+15550009999' };
+    await request(app).post('/api/initiate').send(body);
+    expect(sendSms).not.toHaveBeenCalled();
+  });
+
+  it('does not SMS contact or organizer when demoMode is true (branch 2)', async () => {
+    const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wednesday at 3pm'] };
+    await request(app).post('/api/initiate').send(body);
+    expect(sendSms).not.toHaveBeenCalled();
+  });
+
+  it('does not SMS contact when demoMode is true (branch 3 — no organizer phone)', async () => {
+    await request(app).post('/api/initiate').send(base);
+    expect(sendSms).not.toHaveBeenCalled();
   });
 });

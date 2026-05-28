@@ -631,6 +631,47 @@
     }
     .settings-field input[type="number"] { width: 90px; }
 
+    /* Demo mode banner */
+    .demo-banner {
+      display: none;
+      background: #ff9f0a;
+      color: #1a1a1a;
+      text-align: center;
+      padding: 6px 16px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    /* Toggle switch for Demo Mode */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .toggle-row label { margin: 0; }
+    .toggle-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: #ccc;
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider:before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #ff9f0a; }
+    .toggle-switch input:checked + .toggle-slider:before { transform: translateX(18px); }
+
     .settings-panel-footer {
       padding: 16px 24px;
       border-top: 1px solid #e5e5ea;
@@ -820,6 +861,8 @@
     </span>
   </div>
 
+  <div class="demo-banner" id="demoBanner">🧪 Demo Mode · SMS delivery suppressed</div>
+
   <div class="phones-row">
 
     <!-- Contact phone -->
@@ -940,6 +983,20 @@
         <label for="s_confirmationMessage">Confirmation message</label>
         <textarea id="s_confirmationMessage" rows="3" maxlength="320"></textarea>
         <p class="hint">Sent to the contact when the meeting is confirmed. Supports {contactName} and {organizerName}.</p>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <p class="settings-section-label">Testing</p>
+      <div class="settings-field">
+        <div class="toggle-row">
+          <label for="s_demoMode">Demo Mode</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="s_demoMode" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <p class="hint">Suppress outbound SMS delivery. Calendar bookings and emails still fire. Use this to test the conversation flow without spending Twilio credits.</p>
       </div>
     </div>
 
@@ -1259,6 +1316,8 @@
       document.getElementById('s_maxExchanges').value        = s.maxExchanges       ?? 6;
       document.getElementById('s_holdingMessage').value      = s.holdingMessage     ?? '';
       document.getElementById('s_confirmationMessage').value = s.confirmationMessage ?? '';
+      document.getElementById('s_demoMode').checked          = s.demoMode           ?? false;
+      document.getElementById('demoBanner').style.display    = s.demoMode ? 'block' : 'none';
     } catch (_) {
       showToast('Could not load settings.', 'error');
     }
@@ -1275,7 +1334,8 @@
         maxMessageLength:    parseInt(document.getElementById('s_maxMessageLength').value, 10) || 160,
         maxExchanges:        parseInt(document.getElementById('s_maxExchanges').value, 10) || 6,
         holdingMessage:      document.getElementById('s_holdingMessage').value.trim(),
-        confirmationMessage: document.getElementById('s_confirmationMessage').value.trim()
+        confirmationMessage: document.getElementById('s_confirmationMessage').value.trim(),
+        demoMode:            document.getElementById('s_demoMode').checked
       };
       if (!body.assistantName) { showToast('Assistant name cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
       if (!body.holdingMessage) { showToast('Holding message cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
@@ -1288,6 +1348,7 @@
       const data = await res.json();
       if (res.ok) {
         showToast('Settings saved!', 'success');
+        document.getElementById('demoBanner').style.display = body.demoMode ? 'block' : 'none';
         closeSettings();
       } else {
         showToast(data.error || 'Failed to save settings.', 'error');

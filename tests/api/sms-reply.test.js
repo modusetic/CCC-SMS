@@ -64,7 +64,8 @@ beforeEach(() => {
     maxMessageLength: 160,
     maxExchanges: 6,
     holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
-    confirmationMessage: "Your meeting with {organizerName} is confirmed for {confirmedDatetime}! You'll receive details soon."
+    confirmationMessage: "Your meeting with {organizerName} is confirmed for {confirmedDatetime}! You'll receive details soon.",
+    demoMode: false
   });
 });
 
@@ -104,6 +105,17 @@ describe('contact messages — standard flow', () => {
     const res = await post({ From: '+15551234567', Body: 'Monday does not work' });
     expect(res.status).toBe(200);
     expect(res.text).toContain('<Response>');
+  });
+
+  it('does not SMS organizer when demoMode is true', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
+    });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(sendSms).not.toHaveBeenCalled();
   });
 
   it('SMSes organizer with confirmed time when contact confirms directly', async () => {
