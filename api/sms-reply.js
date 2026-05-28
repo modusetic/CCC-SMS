@@ -25,10 +25,21 @@ function truncate(text, limit = 160) {
   return text.length > limit ? text.substring(0, limit - 3) + '...' : text;
 }
 
+function formatConfirmedTime(datetime) {
+  const match = datetime.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!match) return datetime;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const h = parseInt(match[4], 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${months[parseInt(match[2], 10) - 1]} ${parseInt(match[3], 10)} at ${h12}:${match[5]} ${ampm}`;
+}
+
 function applyTemplate(template, vars) {
   return template
     .replace(/\{contactName\}/g, () => vars.contactName || '')
-    .replace(/\{organizerName\}/g, () => vars.organizerName || '');
+    .replace(/\{organizerName\}/g, () => vars.organizerName || '')
+    .replace(/\{confirmedDatetime\}/g, () => vars.confirmedDatetime || 'the agreed time');
 }
 
 function listTimes(times) {
@@ -129,7 +140,8 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       const confirmMsg = truncate(
         applyTemplate(settings.confirmationMessage, {
           contactName: thread.contactName,
-          organizerName: thread.organizerName
+          organizerName: thread.organizerName,
+          confirmedDatetime: formatConfirmedTime(parsed.datetime)
         }),
         settings.maxMessageLength
       );

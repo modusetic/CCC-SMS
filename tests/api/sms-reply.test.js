@@ -64,7 +64,7 @@ beforeEach(() => {
     maxMessageLength: 160,
     maxExchanges: 6,
     holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
-    confirmationMessage: "Your meeting with {organizerName} is confirmed! You'll receive details soon."
+    confirmationMessage: "Your meeting with {organizerName} is confirmed for {confirmedDatetime}! You'll receive details soon."
   });
 });
 
@@ -409,6 +409,19 @@ describe('SMS template substitution', () => {
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-06-01T14:00:00"}');
     const res = await post({ From: '+15551234567', Body: 'Monday works!' });
     expect(res.text).toContain('Alice'); // {organizerName} replaced with thread.organizerName
+  });
+
+  it('substitutes {confirmedDatetime} in confirmationMessage with human-readable time', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch soon.",
+      confirmationMessage: 'Confirmed for {confirmedDatetime}!'
+    });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    const res = await post({ From: '+15551234567', Body: 'Monday works!' });
+    // formatConfirmedTime('2026-05-12T14:00:00') → 'May 12 at 2:00 PM'
+    expect(res.text).toContain('May 12 at 2:00 PM');
   });
 
   it('substitutes {contactName} and {organizerName} in holdingMessage', async () => {
