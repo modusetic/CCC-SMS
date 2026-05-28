@@ -228,7 +228,7 @@
       gap: 24px;
       align-items: start;
       width: 100%;
-      max-width: 1100px;
+      max-width: 1000px;
     }
 
     /* ── Phone log panel ─────────────────────────────────────────────────── */
@@ -281,9 +281,10 @@
     }
 
     .phones-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
     }
 
     .phone-col {
@@ -319,7 +320,7 @@
 
     /* ── iOS phone shell ─────────────────────────────────────────────────── */
     .iphone {
-      width: 160px;
+      width: 300px;
       background: #000;
       border-radius: 38px;
       border: 8px solid #1a1a1a;
@@ -329,34 +330,34 @@
 
     .dynamic-island-bar {
       background: #000;
-      height: 30px;
+      height: 36px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
     .dynamic-island {
-      width: 62px;
-      height: 18px;
+      width: 90px;
+      height: 24px;
       background: #111;
       border-radius: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
+      gap: 7px;
     }
 
     .di-camera {
-      width: 7px;
-      height: 7px;
+      width: 10px;
+      height: 10px;
       background: #1c1c1c;
       border-radius: 50%;
       border: 1px solid #2a2a2a;
     }
 
     .di-dot {
-      width: 3px;
-      height: 3px;
+      width: 5px;
+      height: 5px;
       background: #1c1c1c;
       border-radius: 50%;
     }
@@ -366,31 +367,31 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1px 13px 2px;
-      font-size: 9px;
+      padding: 2px 16px 3px;
+      font-size: 11px;
       font-weight: 700;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .imessage-header {
       background: #f2f2f7;
-      padding: 8px 8px 7px;
+      padding: 10px 10px 9px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
+      gap: 4px;
       border-bottom: 1px solid #d1d1d6;
     }
 
     .phone-avatar {
-      width: 36px;
-      height: 36px;
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #fff;
-      font-size: 14px;
+      font-size: 18px;
       font-weight: 700;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
@@ -399,34 +400,34 @@
     .avatar-organizer{ background: #34c759; }
 
     .imessage-name {
-      font-size: 9px;
+      font-size: 12px;
       font-weight: 600;
       color: #000;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .imessage-number {
-      font-size: 8px;
+      font-size: 10px;
       color: #8e8e93;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .bubble-area {
       background: #fff;
-      padding: 8px 7px;
+      padding: 10px 10px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      min-height: 150px;
-      max-height: 150px;
+      gap: 5px;
+      min-height: 280px;
+      max-height: 280px;
       overflow-y: auto;
     }
 
     .bubble {
-      font-size: 8.5px;
-      padding: 5px 9px;
-      border-radius: 14px;
-      line-height: 1.35;
+      font-size: 13px;
+      padding: 7px 12px;
+      border-radius: 16px;
+      line-height: 1.4;
       max-width: 82%;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       word-break: break-word;
@@ -448,23 +449,23 @@
 
     .ios-home {
       background: #fff;
-      padding: 5px;
+      padding: 7px;
       display: flex;
       justify-content: center;
     }
 
     .home-bar {
-      width: 46px;
-      height: 4px;
+      width: 80px;
+      height: 5px;
       background: #000;
-      border-radius: 2px;
+      border-radius: 3px;
       opacity: 0.18;
     }
 
     /* Empty state shown before first submit */
     .phone-empty {
       background: #fff;
-      min-height: 150px;
+      min-height: 280px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -473,12 +474,12 @@
     }
 
     .phone-empty-icon {
-      font-size: 22px;
+      font-size: 32px;
       opacity: 0.25;
     }
 
     .phone-empty-text {
-      font-size: 8px;
+      font-size: 12px;
       color: #8e8e93;
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       text-align: center;
