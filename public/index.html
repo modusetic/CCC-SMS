@@ -1230,13 +1230,21 @@
 
   // ── Settings panel ─────────────────────────────────────────────────────
   function openSettings() {
-    document.getElementById('settingsPanel').classList.add('open');
+    const panel = document.getElementById('settingsPanel');
+    panel.setAttribute('aria-modal', 'true');
+    panel.classList.add('open');
     document.getElementById('settingsBackdrop').classList.add('open');
     loadSettings();
+    setTimeout(() => {
+      const first = panel.querySelector('input, textarea');
+      if (first) first.focus();
+    }, 250); // wait for transition
   }
 
   function closeSettings() {
-    document.getElementById('settingsPanel').classList.remove('open');
+    const panel = document.getElementById('settingsPanel');
+    panel.removeAttribute('aria-modal');
+    panel.classList.remove('open');
     document.getElementById('settingsBackdrop').classList.remove('open');
   }
 
@@ -1251,7 +1259,9 @@
       document.getElementById('s_maxExchanges').value        = s.maxExchanges       ?? 6;
       document.getElementById('s_holdingMessage').value      = s.holdingMessage     ?? '';
       document.getElementById('s_confirmationMessage').value = s.confirmationMessage ?? '';
-    } catch (_) {}
+    } catch (_) {
+      showToast('Could not load settings.', 'error');
+    }
   }
 
   async function saveSettings() {
@@ -1262,11 +1272,14 @@
       const body = {
         assistantName:       document.getElementById('s_assistantName').value.trim(),
         tone:                document.getElementById('s_tone').value.trim(),
-        maxMessageLength:    parseInt(document.getElementById('s_maxMessageLength').value, 10),
-        maxExchanges:        parseInt(document.getElementById('s_maxExchanges').value, 10),
+        maxMessageLength:    parseInt(document.getElementById('s_maxMessageLength').value, 10) || 160,
+        maxExchanges:        parseInt(document.getElementById('s_maxExchanges').value, 10) || 6,
         holdingMessage:      document.getElementById('s_holdingMessage').value.trim(),
         confirmationMessage: document.getElementById('s_confirmationMessage').value.trim()
       };
+      if (!body.assistantName) { showToast('Assistant name cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
+      if (!body.holdingMessage) { showToast('Holding message cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
+      if (!body.confirmationMessage) { showToast('Confirmation message cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1291,6 +1304,12 @@
   document.getElementById('closeSettingsBtn').addEventListener('click', closeSettings);
   document.getElementById('settingsBackdrop').addEventListener('click', closeSettings);
   document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('settingsPanel').classList.contains('open')) {
+      closeSettings();
+    }
+  });
 </script>
 
 </body>
