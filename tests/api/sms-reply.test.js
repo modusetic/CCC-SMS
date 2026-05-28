@@ -43,14 +43,30 @@ jest.mock('../../lib/email', () => ({
   sendOrganizerEmail: jest.fn().mockResolvedValue(undefined)
 }));
 
+jest.mock('../../lib/settings', () => ({
+  getSettings: jest.fn()
+}));
+
 const { getThread } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
+const { getSettings } = require('../../lib/settings');
 const app = require('../../api/sms-reply');
 
 const post = (body) => request(app).post('/api/sms-reply').type('form').send(body);
+
+beforeEach(() => {
+  getSettings.mockResolvedValue({
+    assistantName: 'Alex',
+    tone: 'Be conversational and polite.',
+    maxMessageLength: 160,
+    maxExchanges: 6,
+    holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
+    confirmationMessage: "Your meeting with {organizerName} is confirmed! You'll receive details soon."
+  });
+});
 
 describe('contact messages — standard flow', () => {
   it('responds 200 with TwiML', async () => {
@@ -140,7 +156,7 @@ describe('organizer messages — initial review', () => {
     getThread.mockResolvedValue({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'Approve' });
     expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
-      'Alice', 'Bob', expect.any(Array), 'Approve'
+      'Alice', 'Bob', expect.any(Array), 'Approve', expect.any(Object)
     );
   });
 
@@ -148,7 +164,7 @@ describe('organizer messages — initial review', () => {
     getThread.mockResolvedValue({ ...waitingThread });
     await post({ From: '+15550009999', Body: "I can't June 1st but June 5 at 5pm works" });
     expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
-      'Alice', 'Bob', expect.any(Array), "I can't June 1st but June 5 at 5pm works"
+      'Alice', 'Bob', expect.any(Array), "I can't June 1st but June 5 at 5pm works", expect.any(Object)
     );
   });
 
@@ -248,7 +264,8 @@ describe('organizer messages — unsolicited availability update', () => {
     expect(getOrganizerUpdateReply).toHaveBeenCalledWith(
       'Alice',
       'Bob',
-      "I can't May 26 at 2pm but I can at 3pm"
+      "I can't May 26 at 2pm but I can at 3pm",
+      expect.any(Object)
     );
   });
 
@@ -369,5 +386,31 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
     await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
     const contactSaved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
     expect(contactSaved.organizerConversationHistory).toHaveLength(2);
+  });
+});
+
+describe('SMS template substitution', () => {
+  it('substitutes {organizerName} in confirmationMessage', async () => {
+    getThread.mockResolvedValue({ ...baseThread });
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch soon.",
+      confirmationMessage: 'Your meeting with {organizerName} is set!'
+    });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-06-01T14:00:00"}');
+    const res = await post({ From: '+15551234567', Body: 'Monday works!' });
+    expect(res.text).toContain('Alice'); // {organizerName} replaced with thread.organizerName
+  });
+
+  it('substitutes {contactName} and {organizerName} in holdingMessage', async () => {
+    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial' });
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: 'Hi {contactName}, {organizerName} will be in touch!',
+      confirmationMessage: 'Confirmed!'
+    });
+    const res = await post({ From: '+15551234567', Body: 'Hello' });
+    expect(res.text).toContain('Bob');
+    expect(res.text).toContain('Alice');
   });
 });

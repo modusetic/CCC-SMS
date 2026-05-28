@@ -4,6 +4,7 @@ const { sendSms } = require('../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
+const { getSettings } = require('../lib/settings');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -20,8 +21,14 @@ function extractJson(text) {
   return match ? match[1].trim() : text.trim();
 }
 
-function truncate(text) {
-  return text.length > 160 ? text.substring(0, 157) + '...' : text;
+function truncate(text, limit = 160) {
+  return text.length > limit ? text.substring(0, limit - 3) + '...' : text;
+}
+
+function applyTemplate(template, vars) {
+  return template
+    .replace(/\{contactName\}/g, vars.contactName || '')
+    .replace(/\{organizerName\}/g, vars.organizerName || '');
 }
 
 function listTimes(times) {
@@ -65,6 +72,19 @@ app.post('/api/sms-reply', async (req, res) => {
     return res.send(twimlReply("Sorry, I don't have an active scheduling request for this number."));
   }
 
+  let settings;
+  try {
+    settings = await getSettings();
+  } catch (err) {
+    console.error('[sms-reply] getSettings error (using defaults):', err.message);
+    settings = {
+      assistantName: 'Alex', tone: 'Be conversational and polite.',
+      maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
+      confirmationMessage: "Your meeting with {organizerName} is confirmed! You'll receive details soon."
+    };
+  }
+
   const role = thread.organizerPhone && from === thread.organizerPhone ? 'organizer' : 'contact';
   console.log(`[sms-reply] from=${from} role=${role} status=${thread.status} waitingApproval=${thread.waitingForOrganizerApproval} msg="${incomingMessage}"`);
 
@@ -74,18 +94,22 @@ app.post('/api/sms-reply', async (req, res) => {
   }
 
   if (thread.organizerPhone && from === thread.organizerPhone) {
-    return handleOrganizerReply(thread, incomingMessage, res);
+    return handleOrganizerReply(thread, incomingMessage, res, settings);
   }
-  return handleContactReply(thread, incomingMessage, res);
+  return handleContactReply(thread, incomingMessage, res, settings);
 });
 
-async function handleContactReply(thread, incomingMessage, res) {
+async function handleContactReply(thread, incomingMessage, res, settings) {
   if (thread.status === 'waiting_organizer_initial') {
-    return res.send(twimlReply("Thanks for reaching out! We'll be in touch soon to confirm your appointment."));
+    const msg = applyTemplate(settings.holdingMessage, {
+      contactName: thread.contactName,
+      organizerName: thread.organizerName
+    });
+    return res.send(twimlReply(msg));
   }
 
   try {
-    const reply = await getNextReply(thread, incomingMessage);
+    const reply = await getNextReply(thread, incomingMessage, settings);
     console.log(`[sms-reply] gemini raw reply: ${reply}`);
 
     let parsed = null;
@@ -104,7 +128,13 @@ async function handleContactReply(thread, incomingMessage, res) {
       }
       await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, parsed.datetime);
 
-      const confirmMsg = `Your meeting with ${thread.organizerName} is confirmed! You'll receive details soon.`;
+      const confirmMsg = truncate(
+        applyTemplate(settings.confirmationMessage, {
+          contactName: thread.contactName,
+          organizerName: thread.organizerName
+        }),
+        settings.maxMessageLength
+      );
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
       await saveBoth(thread);
 
@@ -118,7 +148,7 @@ async function handleContactReply(thread, incomingMessage, res) {
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
 
       const holdingMsg = parsed.reply || `I'll check with ${thread.organizerName} and get back to you!`;
-      const smsSafe = truncate(holdingMsg);
+      const smsSafe = truncate(holdingMsg, settings.maxMessageLength);
       thread.conversationHistory.push({ role: 'model', content: smsSafe });
       await saveBoth(thread);
 
@@ -136,7 +166,7 @@ async function handleContactReply(thread, incomingMessage, res) {
     } else {
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
-      const smsSafe = truncate(reply);
+      const smsSafe = truncate(reply, settings.maxMessageLength);
       thread.conversationHistory.push({ role: 'model', content: smsSafe });
       await saveBoth(thread);
       return res.send(twimlReply(smsSafe));
@@ -147,16 +177,16 @@ async function handleContactReply(thread, incomingMessage, res) {
   }
 }
 
-async function handleOrganizerReply(thread, incomingMessage, res) {
+async function handleOrganizerReply(thread, incomingMessage, res, settings) {
   if (thread.status === 'waiting_organizer_initial') {
-    return handleOrganizerInitialReview(thread, incomingMessage, res);
+    return handleOrganizerInitialReview(thread, incomingMessage, res, settings);
   }
 
   if (!thread.waitingForOrganizerApproval) {
     try {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
-      const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage);
-      const smsSafe = truncate(aiMsg);
+      const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage, settings);
+      const smsSafe = truncate(aiMsg, settings.maxMessageLength);
       const ackMsg = `Got it! I've let ${thread.contactName} know about your updated availability.`;
       pushOrganizerHistory(thread, incomingMessage, ackMsg);
       await saveBoth(thread);
@@ -171,10 +201,8 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
 
   try {
     const decision = await getOrganizerApprovalDecision(
-      thread.organizerName,
-      thread.contactName,
-      thread.pendingContactSuggestion,
-      incomingMessage
+      thread.organizerName, thread.contactName,
+      thread.pendingContactSuggestion, incomingMessage, settings
     );
 
     console.log(`[sms-reply] organizer approval decision=${decision.approved}`);
@@ -193,8 +221,8 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
         await sendOrganizerEmail(thread.organizerEmail, thread.organizerName, thread.contactName, thread.pendingContactSuggestion);
       }
 
-      const confirmMsg = truncate(decision.contactMsg);
-      const orgAck = truncate(decision.organizerAck);
+      const confirmMsg = truncate(decision.contactMsg, settings.maxMessageLength);
+      const orgAck = truncate(decision.organizerAck, settings.maxMessageLength);
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
       pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
@@ -206,13 +234,10 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
       thread.waitingForOrganizerApproval = false;
       thread.pendingContactSuggestion = null;
       thread.pendingContactDatetime = null;
-      // Store organizer's response as a backup time so Gemini has context on next turn.
-      // Don't push to conversationHistory here — the last entry is already a model turn
-      // (the holding message), and two consecutive model entries break the Gemini API.
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
 
-      const contactMsg = truncate(decision.contactMsg);
-      const orgAck = truncate(decision.organizerAck);
+      const contactMsg = truncate(decision.contactMsg, settings.maxMessageLength);
+      const orgAck = truncate(decision.organizerAck, settings.maxMessageLength);
       pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 
@@ -226,15 +251,13 @@ async function handleOrganizerReply(thread, incomingMessage, res) {
   }
 }
 
-async function handleOrganizerInitialReview(thread, incomingMessage, res) {
+async function handleOrganizerInitialReview(thread, incomingMessage, res, settings) {
   try {
     const aiMsg = await getOrganizerInitialContactMessage(
-      thread.organizerName,
-      thread.contactName,
-      thread.proposedTimes,
-      incomingMessage
+      thread.organizerName, thread.contactName,
+      thread.proposedTimes, incomingMessage, settings
     );
-    const smsBody = truncate(aiMsg);
+    const smsBody = truncate(aiMsg, settings.maxMessageLength);
 
     const reply = `Got it! I've reached out to ${thread.contactName} with your availability.`;
 
