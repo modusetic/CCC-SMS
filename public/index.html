@@ -692,6 +692,41 @@
     }
     .settings-save-btn:hover { background: #333; }
     .settings-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Demo reply input area */
+    .demo-reply-row {
+      display: none;
+      margin-top: 10px;
+      width: 300px;
+      gap: 6px;
+    }
+    .demo-reply-row.visible { display: flex; }
+    .demo-reply-input {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1.5px solid #ff9f0a;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-family: inherit;
+      color: #111;
+      background: #fff;
+      outline: none;
+    }
+    .demo-reply-input:focus { border-color: #e08800; box-shadow: 0 0 0 2px rgba(255,159,10,0.2); }
+    .demo-reply-send-btn {
+      background: #ff9f0a;
+      color: #1a1a1a;
+      border: none;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .demo-reply-send-btn:hover { background: #e08800; color: #fff; }
+    .demo-reply-send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -893,6 +928,10 @@
         </div>
         <div class="ios-home"><div class="home-bar"></div></div>
       </div>
+      <div class="demo-reply-row" id="contactDemoRow">
+        <input type="text" class="demo-reply-input" id="contactDemoText" placeholder="Reply as contact…" autocomplete="off" />
+        <button type="button" class="demo-reply-send-btn" id="contactDemoSendBtn">Send</button>
+      </div>
     </div>
 
     <!-- Organizer phone -->
@@ -922,6 +961,10 @@
           </div>
         </div>
         <div class="ios-home"><div class="home-bar"></div></div>
+      </div>
+      <div class="demo-reply-row" id="organizerDemoRow">
+        <input type="text" class="demo-reply-input" id="organizerDemoText" placeholder="Reply as organizer…" autocomplete="off" />
+        <button type="button" class="demo-reply-send-btn" id="organizerDemoSendBtn">Send</button>
       </div>
     </div>
 
@@ -1163,7 +1206,7 @@
 
       if (res.ok) {
         showToast(`SMS sent! Thread ID: ${data.threadId}`, 'success');
-        startPolling(contactPhone); // contactPhone captured before reset below
+        startPolling(contactPhone, organizerPhone || null); // phones captured before reset below
         e.target.reset();
         // Explicitly blank the contact fields — autocomplete="off" prevents
         // suggestions, but some browsers still restore values after reset().
@@ -1191,6 +1234,8 @@
   // ── Phone log ─────────────────────────────────────────────────────────────
   let pollInterval = null;
   let currentContactPhone = null;
+  let activeOrganizerPhone = null;
+  let demoModeActive = false;
 
   function renderBubbles(containerId, history) {
     const el = document.getElementById(containerId);
@@ -1271,8 +1316,9 @@
     }
   }
 
-  function startPolling(contactPhone) {
+  function startPolling(contactPhone, organizerPhone) {
     currentContactPhone = contactPhone;
+    activeOrganizerPhone = organizerPhone || null;
     // Clear any existing poll from a previous submit
     if (pollInterval) {
       clearInterval(pollInterval);
@@ -1281,8 +1327,43 @@
     document.getElementById('confirmedBanner').classList.remove('visible');
     document.getElementById('liveBadge').classList.add('visible');
     document.getElementById('pollError').classList.remove('visible');
+    updateDemoInputVisibility();
     pollConversation(); // immediate first poll
     pollInterval = setInterval(pollConversation, 5000);
+  }
+
+  function updateDemoInputVisibility() {
+    const contactReady = demoModeActive && !!currentContactPhone;
+    const orgReady = demoModeActive && !!activeOrganizerPhone;
+    document.getElementById('contactDemoRow').classList.toggle('visible', contactReady);
+    document.getElementById('organizerDemoRow').classList.toggle('visible', orgReady);
+  }
+
+  async function sendDemoReply(side) {
+    const isContact = side === 'contact';
+    const fromPhone = isContact ? currentContactPhone : activeOrganizerPhone;
+    const inputEl = document.getElementById(isContact ? 'contactDemoText' : 'organizerDemoText');
+    const btnEl = document.getElementById(isContact ? 'contactDemoSendBtn' : 'organizerDemoSendBtn');
+    const body = inputEl.value.trim();
+    if (!body || !fromPhone) return;
+    inputEl.disabled = true;
+    btnEl.disabled = true;
+    try {
+      const params = new URLSearchParams({ From: fromPhone, Body: body });
+      await fetch('/api/sms-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString()
+      });
+      inputEl.value = '';
+      await pollConversation();
+    } catch (_) {
+      // poll's own error indicator handles this
+    } finally {
+      inputEl.disabled = false;
+      btnEl.disabled = false;
+      inputEl.focus();
+    }
   }
 
   // ── Settings panel ─────────────────────────────────────────────────────
@@ -1318,6 +1399,8 @@
       document.getElementById('s_confirmationMessage').value = s.confirmationMessage ?? '';
       document.getElementById('s_demoMode').checked          = s.demoMode           ?? false;
       document.getElementById('demoBanner').style.display    = s.demoMode ? 'block' : 'none';
+      demoModeActive = s.demoMode ?? false;
+      updateDemoInputVisibility();
     } catch (_) {
       showToast('Could not load settings.', 'error');
     }
@@ -1348,7 +1431,9 @@
       const data = await res.json();
       if (res.ok) {
         showToast('Settings saved!', 'success');
-        document.getElementById('demoBanner').style.display = body.demoMode ? 'block' : 'none';
+        demoModeActive = body.demoMode;
+        document.getElementById('demoBanner').style.display = demoModeActive ? 'block' : 'none';
+        updateDemoInputVisibility();
         closeSettings();
       } else {
         showToast(data.error || 'Failed to save settings.', 'error');
@@ -1371,6 +1456,23 @@
       closeSettings();
     }
   });
+
+  // ── Demo reply buttons ────────────────────────────────────────────────────
+  document.getElementById('contactDemoSendBtn').addEventListener('click', () => sendDemoReply('contact'));
+  document.getElementById('organizerDemoSendBtn').addEventListener('click', () => sendDemoReply('organizer'));
+  document.getElementById('contactDemoText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDemoReply('contact'); } });
+  document.getElementById('organizerDemoText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDemoReply('organizer'); } });
+
+  // ── Init: fetch settings to show demo banner and prep demo inputs ─────────
+  (async function () {
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) return;
+      const s = await res.json();
+      demoModeActive = s.demoMode ?? false;
+      document.getElementById('demoBanner').style.display = demoModeActive ? 'block' : 'none';
+    } catch (_) {}
+  })();
 </script>
 
 </body>
