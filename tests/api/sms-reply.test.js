@@ -170,6 +170,29 @@ describe('contact messages — standard flow', () => {
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('Friday May 22 at 2pm'));
   });
 
+  it('counter-proposal ping to organizer includes contact name prelude', async () => {
+    setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue(JSON.stringify({
+      status: 'counter-proposal',
+      suggestedTime: 'Friday May 22 at 2pm',
+      suggestedDatetime: '2026-05-22T14:00:00',
+      reply: "I'll check with Alice and get back to you!"
+    }));
+    await post({ From: '+15551234567', Body: 'Can I do Friday?' });
+    expect(sendSms).toHaveBeenCalledWith('+15550009999',
+      expect.stringMatching(/^\[Bob/)
+    );
+  });
+
+  it('confirmation SMS to organizer includes contact name prelude', async () => {
+    setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday works!' });
+    expect(sendSms).toHaveBeenCalledWith('+15550009999',
+      expect.stringMatching(/^\[Bob/)
+    );
+  });
+
   it('records counter-proposal ping in organizerConversationHistory', async () => {
     saveThreadById.mockClear();
     setupThread({ ...baseThread, organizerConversationHistory: [] });

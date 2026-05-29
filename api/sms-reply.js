@@ -64,6 +64,10 @@ function worksQ(count) {
   return count === 1 ? 'Does this work for you?' : 'Which works?';
 }
 
+function orgPrelude(contactName, context) {
+  return `[${contactName} | ${context}] `;
+}
+
 function pushOrganizerHistory(thread, userMsg, ackMsg) {
   thread.organizerConversationHistory = thread.organizerConversationHistory || [];
   thread.organizerConversationHistory.push({ role: 'user', content: userMsg });
@@ -285,11 +289,9 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       await saveBoth(thread);
 
       if (thread.organizerPhone) {
-        const orgConfirmMsg = truncate(
-          `${thread.contactName} confirmed! Meeting on ${formatConfirmedTime(parsed.datetime)}.`,
-          settings.maxMessageLength
-        );
-        await demoSendSms(thread.organizerPhone, orgConfirmMsg, settings.demoMode);
+        const orgConfirmMsg = orgPrelude(thread.contactName, `confirmed: ${formatConfirmedTime(parsed.datetime)}`) +
+          `Meeting confirmed for ${formatConfirmedTime(parsed.datetime)}.`;
+        await demoSendSms(thread.organizerPhone, truncate(orgConfirmMsg, settings.maxMessageLength), settings.demoMode);
       }
 
       return res.send(twimlReply(confirmMsg));
@@ -308,7 +310,8 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
 
       if (thread.organizerPhone) {
         console.log(`[sms-reply] pinging organizer ${thread.organizerPhone} with counter-proposal`);
-        const counterMsg = `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`;
+        const counterMsg = orgPrelude(thread.contactName, `pending: ${parsed.suggestedTime}`) +
+          `${thread.contactName} suggests: ${parsed.suggestedTime}. Reply YES to approve or reply with alternative times.`;
         thread.organizerConversationHistory = thread.organizerConversationHistory || [];
         thread.organizerConversationHistory.push({ role: 'model', content: counterMsg });
         await saveBoth(thread);

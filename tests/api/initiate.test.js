@@ -81,6 +81,14 @@ describe('POST /api/initiate — organizer phone, no backup times', () => {
     await request(app).post('/api/initiate').send(body);
     expect(addToPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid-1234');
   });
+
+  it('organizer initial review SMS includes contact name prelude', async () => {
+    const body = { ...base, organizerPhone: '+15550009999' };
+    await request(app).post('/api/initiate').send(body);
+    expect(sendSms).toHaveBeenCalledWith('+15550009999',
+      expect.stringMatching(/^\[Bob/)
+    );
+  });
 });
 
 describe('POST /api/initiate — organizer phone + backup times', () => {
@@ -98,6 +106,14 @@ describe('POST /api/initiate — organizer phone + backup times', () => {
   it('sends FYI to organizer', async () => {
     await request(app).post('/api/initiate').send(body);
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('Bob'));
+  });
+
+  it('organizer FYI SMS includes contact name prelude', async () => {
+    const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wed at 3pm'] };
+    await request(app).post('/api/initiate').send(body);
+    expect(sendSms).toHaveBeenCalledWith('+15550009999',
+      expect.stringMatching(/^\[Bob/)
+    );
   });
 
   it('saves thread with status pending', async () => {

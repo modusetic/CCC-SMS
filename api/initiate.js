@@ -33,6 +33,10 @@ function timeWord(count) {
   return count === 1 ? 'time' : 'times';
 }
 
+function orgPrelude(contactName, context) {
+  return `[${contactName} | ${context}] `;
+}
+
 // Normalize a phone number to E.164 (+digits).
 // Handles: '+18325176982', '18325176982', '(832) 517-6982', '832-517-6982'.
 // Twilio always sends E.164 in webhooks, so Redis keys must match that format.
@@ -107,10 +111,10 @@ app.post('/api/initiate', async (req, res) => {
       // Save BEFORE sending so Redis is always consistent with what was texted.
       thread.status = 'waiting_organizer_initial';
       const n = proposedTimes.length;
-      const smsBody = truncate(
-        `${contactName} wants to schedule. Proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply to confirm or suggest different times.`
-      );
-      thread.organizerConversationHistory.push({ role: 'model', content: smsBody });
+      const fullSmsBody = orgPrelude(contactName, `proposed: ${listTimes(proposedTimes)}`) +
+        `${contactName} wants to schedule. Proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply to confirm or suggest different times.`;
+      const smsBody = truncate(fullSmsBody);
+      thread.organizerConversationHistory.push({ role: 'model', content: fullSmsBody });
       await saveThreadById(thread.threadId, thread);
       await Promise.all([
         addToPhoneIndex(normalizedContactPhone, thread.threadId),
@@ -129,6 +133,7 @@ app.post('/api/initiate', async (req, res) => {
       );
       thread.conversationHistory.push({ role: 'model', content: contactMsg });
       const orgFyi = truncate(
+        orgPrelude(contactName, `proposed: ${listTimes(backupTimes)}`) +
         `Scheduling started with ${contactName}. I've sent them your available ${timeWord(n)} and will let you know when confirmed.`
       );
       // orgFyi goes to organizerConversationHistory — NOT conversationHistory.
