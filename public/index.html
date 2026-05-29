@@ -1206,7 +1206,7 @@
 
       if (res.ok) {
         showToast(`SMS sent! Thread ID: ${data.threadId}`, 'success');
-        startPolling(contactPhone, organizerPhone || null); // phones captured before reset below
+        startPolling(contactPhone, organizerPhone || null, data.threadId); // phones captured before reset below
         e.target.reset();
         // Explicitly blank the contact fields — autocomplete="off" prevents
         // suggestions, but some browsers still restore values after reset().
@@ -1234,6 +1234,7 @@
   // ── Phone log ─────────────────────────────────────────────────────────────
   let pollInterval = null;
   let currentContactPhone = null;
+  let currentThreadId = null;
   let activeOrganizerPhone = null;
   let demoModeActive = false;
 
@@ -1285,9 +1286,12 @@
   }
 
   async function pollConversation() {
-    if (!currentContactPhone) return;
+    if (!currentContactPhone && !currentThreadId) return;
     try {
-      const res = await fetch(`/api/conversation?phone=${encodeURIComponent(currentContactPhone)}`);
+      const url = currentThreadId
+        ? `/api/conversation?threadId=${encodeURIComponent(currentThreadId)}`
+        : `/api/conversation?phone=${encodeURIComponent(currentContactPhone)}`;
+      const res = await fetch(url);
       document.getElementById('pollError').classList.remove('visible');
 
       if (res.status === 404) {
@@ -1316,9 +1320,10 @@
     }
   }
 
-  function startPolling(contactPhone, organizerPhone) {
+  function startPolling(contactPhone, organizerPhone, threadId) {
     currentContactPhone = contactPhone;
     activeOrganizerPhone = organizerPhone || null;
+    currentThreadId = threadId || null;
     // Clear any existing poll from a previous submit
     if (pollInterval) {
       clearInterval(pollInterval);
