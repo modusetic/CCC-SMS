@@ -198,6 +198,53 @@ describe('POST /api/initiate — organizerConversationHistory', () => {
   });
 });
 
+describe('POST /api/initiate — new schema fields', () => {
+  beforeEach(() => {
+    saveThread.mockClear();
+    sendSms.mockClear();
+  });
+
+  it('initializes directorMessages, rejectedTimes as empty arrays', async () => {
+    await request(app).post('/api/initiate').send(base);
+    const saved = saveThread.mock.calls[0][1];
+    expect(saved.directorMessages).toEqual([]);
+    expect(saved.rejectedTimes).toEqual([]);
+  });
+
+  it('initializes confirmedDatetime as null', async () => {
+    await request(app).post('/api/initiate').send(base);
+    const saved = saveThread.mock.calls[0][1];
+    expect(saved.confirmedDatetime).toBeNull();
+  });
+
+  it('sets lastActivityAt on thread creation', async () => {
+    await request(app).post('/api/initiate').send(base);
+    const saved = saveThread.mock.calls[0][1];
+    expect(saved.lastActivityAt).toBeDefined();
+    expect(typeof saved.lastActivityAt).toBe('string');
+  });
+
+  it('sets offeredTimes to proposedTimes in no-organizer branch', async () => {
+    await request(app).post('/api/initiate').send(base);
+    const saved = saveThread.mock.calls[0][1];
+    expect(saved.offeredTimes).toEqual(base.proposedTimes);
+  });
+
+  it('sets offeredTimes to backupTimes in organizer+backup branch', async () => {
+    const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wednesday at 3pm'] };
+    await request(app).post('/api/initiate').send(body);
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.offeredTimes).toEqual(['Wednesday at 3pm']);
+  });
+
+  it('offeredTimes is empty in waiting_organizer_initial branch', async () => {
+    const body = { ...base, organizerPhone: '+15550009999' };
+    await request(app).post('/api/initiate').send(body);
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.offeredTimes).toEqual([]);
+  });
+});
+
 describe('Demo Mode — SMS suppression', () => {
   beforeEach(() => {
     getSettings.mockResolvedValue({

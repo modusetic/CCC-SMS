@@ -49,7 +49,7 @@ describe('getNextReply', () => {
     );
   });
 
-  it('includes proposedTimes in system prompt when provided', async () => {
+  it('includes proposedTimes in system prompt as fallback when offeredTimes is absent', async () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
     const threadWithTimes = { ...mockThread, proposedTimes: ['Friday June 6 at 6pm', 'Saturday June 7 at 10am'] };
     await getNextReply(threadWithTimes, 'Neither works');
@@ -58,6 +58,36 @@ describe('getNextReply', () => {
         systemInstruction: expect.stringContaining('Friday June 6 at 6pm')
       })
     );
+  });
+
+  it('uses offeredTimes in system prompt (takes priority over proposedTimes)', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    const threadWithOffered = {
+      ...mockThread,
+      proposedTimes: ['Tuesday at 9am'],
+      offeredTimes: ['Wednesday at 4pm', 'Thursday at 11am']
+    };
+    await getNextReply(threadWithOffered, 'Neither works');
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('Wednesday at 4pm');
+    expect(systemInstruction).not.toContain('Tuesday at 9am');
+  });
+
+  it('includes directorMessages in system prompt when provided', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    const threadWithOrgMsgs = { ...mockThread, directorMessages: ['Try Tuesday at 3pm instead'] };
+    await getNextReply(threadWithOrgMsgs, 'Monday does not work');
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('Try Tuesday at 3pm instead');
+  });
+
+  it('includes rejectedTimes in system prompt when provided', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    const threadWithRejected = { ...mockThread, rejectedTimes: ['Wednesday at 10am', 'Friday at 5pm'] };
+    await getNextReply(threadWithRejected, 'Any other times?');
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('Wednesday at 10am');
+    expect(systemInstruction).toContain('Friday at 5pm');
   });
 
   it('includes last model message as context in system prompt', async () => {
@@ -222,16 +252,18 @@ describe('getOrganizerUpdateReply', () => {
     );
   });
 
-  it('includes proposedTimes and lastContactMsg from context in the prompt', async () => {
+  it('includes offeredTimes, directorMessages, and lastContactMsg from context in the prompt', async () => {
     mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi Bob!' } });
     await getOrganizerUpdateReply('Alice', 'Bob', 'Try 4pm', {}, {
-      proposedTimes: ['Monday at 2pm', 'Tuesday at 10am'],
-      directorAlternatives: ['Wednesday at 3pm'],
+      offeredTimes: ['Monday at 2pm', 'Tuesday at 10am'],
+      directorMessages: ['Wednesday at 3pm'],
+      rejectedTimes: ['Thursday at 5pm'],
       lastContactMsg: 'None of those work for me'
     });
     const call = mockGenerateContent.mock.calls[0][0];
     expect(call).toContain('Monday at 2pm');
     expect(call).toContain('Wednesday at 3pm');
+    expect(call).toContain('Thursday at 5pm');
     expect(call).toContain('None of those work for me');
   });
 });

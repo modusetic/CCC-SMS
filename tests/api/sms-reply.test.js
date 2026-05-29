@@ -9,6 +9,11 @@ const baseThread = {
   organizerPhone: '+15550009999',
   proposedTimes: ['Monday at 2pm', 'Tuesday at 10am'],
   directorAlternatives: [],
+  directorMessages: [],
+  rejectedTimes: [],
+  offeredTimes: ['Monday at 2pm', 'Tuesday at 10am'],
+  confirmedDatetime: null,
+  lastActivityAt: '2026-05-07T10:00:00.000Z',
   timezone: 'America/Chicago',
   status: 'pending',
   waitingForOrganizerApproval: false,
@@ -210,14 +215,14 @@ describe('organizer messages — initial review', () => {
     expect(res.text).toContain('Bob');
   });
 
-  it('stores organizer initial review message in directorAlternatives', async () => {
+  it('stores organizer initial review message in directorMessages', async () => {
     const { saveThread } = require('../../lib/kv');
     getThread.mockResolvedValue({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'I can only meet June 13 at 5pm' });
     expect(saveThread).toHaveBeenCalledWith(
       '+15551234567',
       expect.objectContaining({
-        directorAlternatives: expect.arrayContaining(['I can only meet June 13 at 5pm'])
+        directorMessages: expect.arrayContaining(['I can only meet June 13 at 5pm'])
       })
     );
   });
@@ -338,14 +343,14 @@ describe('organizer messages — unsolicited availability update', () => {
     expect(res.text).toContain('Bob');
   });
 
-  it('adds organizer update to directorAlternatives', async () => {
+  it('adds organizer update to directorMessages', async () => {
     const { saveThread } = require('../../lib/kv');
     getThread.mockResolvedValue({ ...baseThread });
     await post({ From: '+15550009999', Body: 'Try Friday at 4pm instead' });
     expect(saveThread).toHaveBeenCalledWith(
       '+15551234567',
       expect.objectContaining({
-        directorAlternatives: expect.arrayContaining(['Try Friday at 4pm instead'])
+        directorMessages: expect.arrayContaining(['Try Friday at 4pm instead'])
       })
     );
   });
@@ -560,6 +565,70 @@ describe('organizer approval decision receives context', () => {
       expect.any(Object),
       expect.objectContaining({ directorAlternatives: ['Monday at 3pm', 'Tuesday at 11am'] })
     );
+  });
+});
+
+describe('confirmedDatetime and rejectedTimes tracking', () => {
+  it('sets confirmedDatetime on thread when contact directly confirms', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.confirmedDatetime).toBe('2026-05-12T14:00:00');
+  });
+
+  it('sets confirmedDatetime when organizer approves counter-proposal', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    const pendingThread = {
+      ...baseThread,
+      waitingForOrganizerApproval: true,
+      pendingContactSuggestion: 'Friday May 22 at 2pm',
+      pendingContactDatetime: '2026-05-22T14:00:00'
+    };
+    getThread.mockResolvedValue(pendingThread);
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: true,
+      contactMsg: 'Meeting confirmed for Friday May 22 at 2pm!',
+      organizerAck: "Confirmed! I've let Bob know."
+    });
+    await post({ From: '+15550009999', Body: 'Yes that works' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.confirmedDatetime).toBe('2026-05-22T14:00:00');
+  });
+
+  it('adds pendingContactSuggestion to rejectedTimes when organizer rejects', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    const pendingThread = {
+      ...baseThread,
+      waitingForOrganizerApproval: true,
+      pendingContactSuggestion: 'Friday May 22 at 2pm',
+      pendingContactDatetime: '2026-05-22T14:00:00',
+      rejectedTimes: []
+    };
+    getThread.mockResolvedValue(pendingThread);
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: false,
+      contactMsg: 'Alice suggests Monday at 3pm instead.',
+      organizerAck: "Got it, forwarding."
+    });
+    await post({ From: '+15550009999', Body: 'Not Friday, try Monday at 3pm' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.rejectedTimes).toContain('Friday May 22 at 2pm');
+  });
+
+  it('updates lastActivityAt on saveBoth', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...baseThread });
+    getNextReply.mockResolvedValue('How about Wednesday?');
+    await post({ From: '+15551234567', Body: 'Monday does not work' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.lastActivityAt).toBeDefined();
+    expect(saved.lastActivityAt).not.toBe('2026-05-07T10:00:00.000Z');
   });
 });
 

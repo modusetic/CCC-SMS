@@ -84,6 +84,11 @@ app.post('/api/initiate', async (req, res) => {
     organizerPhone: normalizedOrganizerPhone,
     proposedTimes,
     directorAlternatives: backupTimes,
+    directorMessages: [],
+    rejectedTimes: [],
+    offeredTimes: [],
+    confirmedDatetime: null,
+    lastActivityAt: new Date().toISOString(),
     timezone: timezone || process.env.TIMEZONE || 'America/New_York',
     status: 'pending',
     waitingForOrganizerApproval: false,
@@ -98,6 +103,7 @@ app.post('/api/initiate', async (req, res) => {
   try {
     if (hasOrganizerPhone && !hasBackupTimes) {
       // Contact's proposed times go to organizer for review first; contact waits.
+      // offeredTimes stays empty until organizer approves and we send to contact.
       // Save BEFORE sending so Redis is always consistent with what was texted.
       thread.status = 'waiting_organizer_initial';
       const n = proposedTimes.length;
@@ -111,6 +117,7 @@ app.post('/api/initiate', async (req, res) => {
 
     } else if (hasOrganizerPhone && hasBackupTimes) {
       // Organizer pre-approved backup times — send to contact immediately, FYI to organizer.
+      thread.offeredTimes = backupTimes;
       // Build messages and push to history first, then save, then send.
       const n = backupTimes.length;
       const contactMsg = truncate(
@@ -131,6 +138,7 @@ app.post('/api/initiate', async (req, res) => {
 
     } else {
       // No organizer phone — send contact the proposed times directly.
+      thread.offeredTimes = proposedTimes;
       const n = proposedTimes.length;
       const label = n === 1 ? 'Available time' : 'Options';
       const smsBody = truncate(

@@ -67,6 +67,7 @@ function pushOrganizerHistory(thread, userMsg, ackMsg) {
 }
 
 async function saveBoth(thread) {
+  thread.lastActivityAt = new Date().toISOString();
   const saves = [saveThread(thread.contactPhone, thread)];
   if (thread.organizerPhone) saves.push(saveThread(thread.organizerPhone, thread));
   await Promise.all(saves);
@@ -167,6 +168,7 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
 
     if (parsed?.status === 'confirmed' && parsed?.datetime) {
       thread.status = 'confirmed';
+      thread.confirmedDatetime = parsed.datetime;
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
 
@@ -242,12 +244,13 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
 
   if (!thread.waitingForOrganizerApproval) {
     try {
-      thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
+      thread.directorMessages = [...(thread.directorMessages || []), incomingMessage];
       const aiMsg = await getOrganizerUpdateReply(
         thread.organizerName, thread.contactName, incomingMessage, settings,
         {
-          proposedTimes: thread.proposedTimes || [],
-          directorAlternatives: thread.directorAlternatives || [],
+          offeredTimes: thread.offeredTimes || [],
+          directorMessages: thread.directorMessages || [],
+          rejectedTimes: thread.rejectedTimes || [],
           lastContactMsg: lastModelMsg(thread)
         }
       );
@@ -269,12 +272,17 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
     const decision = await getOrganizerApprovalDecision(
       thread.organizerName, thread.contactName,
       thread.pendingContactSuggestion, incomingMessage, settings,
-      { directorAlternatives: thread.directorAlternatives || [] }
+      {
+        directorAlternatives: thread.directorAlternatives || [],
+        directorMessages: thread.directorMessages || [],
+        rejectedTimes: thread.rejectedTimes || []
+      }
     );
 
     console.log(`[sms-reply] organizer approval decision=${decision.approved}`);
     if (decision.approved) {
       thread.status = 'confirmed';
+      thread.confirmedDatetime = thread.pendingContactDatetime || thread.pendingContactSuggestion;
       thread.waitingForOrganizerApproval = false;
 
       if (thread.pendingContactDatetime) {
@@ -299,9 +307,12 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
 
     } else {
       thread.waitingForOrganizerApproval = false;
+      if (thread.pendingContactSuggestion) {
+        thread.rejectedTimes = [...(thread.rejectedTimes || []), thread.pendingContactSuggestion];
+      }
       thread.pendingContactSuggestion = null;
       thread.pendingContactDatetime = null;
-      thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
+      thread.directorMessages = [...(thread.directorMessages || []), incomingMessage];
 
       const contactMsg = truncate(decision.contactMsg, settings.maxMessageLength);
       const orgAck = truncate(decision.organizerAck, settings.maxMessageLength);
@@ -330,7 +341,8 @@ async function handleOrganizerInitialReview(thread, incomingMessage, res, settin
     const reply = `Got it! I've reached out to ${thread.contactName} with your availability.`;
 
     thread.status = 'pending';
-    thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
+    thread.directorMessages = [...(thread.directorMessages || []), incomingMessage];
+    thread.offeredTimes = thread.proposedTimes || [];
     thread.conversationHistory.push({ role: 'model', content: smsBody });
     pushOrganizerHistory(thread, incomingMessage, reply);
     await saveBoth(thread);
