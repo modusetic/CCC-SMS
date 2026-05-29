@@ -741,6 +741,28 @@ describe('organizer multi-thread routing', () => {
     const res = await post({ From: '+15550009999', Body: 'Yes' });
     expect(res.text).toContain('Mon Jun 2 at 10am');
   });
+
+  it('auto-routes pending message to single remaining waiting thread when list becomes stale', async () => {
+    // Organizer had 2 waiting threads, but now only 1 remains (the other got confirmed)
+    getPendingMessage.mockResolvedValue('Yes, Friday works for me');
+    getPhoneIndex.mockResolvedValue(['uuid-1']); // only uuid-1 remains
+    getThreadById.mockResolvedValue({
+      ...baseThread,
+      threadId: 'uuid-1',
+      contactName: 'Bob Smith',
+      waitingForOrganizerApproval: true,
+      pendingContactSuggestion: 'Friday May 30 at 2pm',
+      pendingContactDatetime: '2026-05-30T14:00:00'
+    });
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: true,
+      contactMsg: 'Meeting confirmed!',
+      organizerAck: "Confirmed! I've let Bob know."
+    });
+    await post({ From: '+15550009999', Body: 'random text' }); // any body — pending msg is used
+    expect(deletePendingMessage).toHaveBeenCalledWith('+15550009999');
+    expect(getOrganizerApprovalDecision).toHaveBeenCalled();
+  });
 });
 
 describe('SMS template substitution', () => {

@@ -123,13 +123,23 @@ async function handleOrganizerRouting(organizerPhone, incomingMessage, res, sett
 
   // Mid-disambiguation: organizer is selecting from a previously shown list
   if (pendingMsg !== null) {
+    // If only one thread is available now (threads resolved since list was shown),
+    // auto-route the stored message rather than showing a stale list.
+    const autoRoute = waitingThreads.length === 1 ? waitingThreads[0]
+      : waitingThreads.length === 0 && orgThreads.length === 1 ? orgThreads[0]
+      : null;
+    if (autoRoute) {
+      await deletePendingMessage(organizerPhone);
+      return handleOrganizerReply(autoRoute, pendingMsg, res, settings);
+    }
+
     const listThreads = waitingThreads.length >= 2 ? waitingThreads : orgThreads;
-    const num = parseInt(incomingMessage.trim(), 10);
+    const trimmed = incomingMessage.trim();
+    const num = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
     if (num >= 1 && num <= listThreads.length) {
       await deletePendingMessage(organizerPhone);
       return handleOrganizerReply(listThreads[num - 1], pendingMsg, res, settings);
     }
-    // Invalid selection — re-show list
     return res.send(twimlReply(buildDisambiguationList(listThreads)));
   }
 
