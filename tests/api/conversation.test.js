@@ -1,7 +1,10 @@
 const request = require('supertest');
 
-jest.mock('../../lib/kv', () => ({ getThread: jest.fn() }));
-const { getThread } = require('../../lib/kv');
+jest.mock('../../lib/kv', () => ({
+  getThreadById: jest.fn(),
+  getThread: jest.fn()
+}));
+const { getThreadById, getThread } = require('../../lib/kv');
 const app = require('../../api/conversation');
 
 const mockThread = {
@@ -26,7 +29,7 @@ const mockThread = {
 };
 
 describe('GET /api/conversation', () => {
-  beforeEach(() => getThread.mockReset());
+  beforeEach(() => { getThread.mockReset(); getThreadById.mockReset(); });
 
   it('returns 400 when phone param is missing', async () => {
     const res = await request(app).get('/api/conversation');
@@ -91,6 +94,34 @@ describe('GET /api/conversation', () => {
     getThread.mockResolvedValue({ ...mockThread });
     const res = await request(app).get('/api/conversation?phone=%2015551234567');
     expect(getThread).toHaveBeenCalledWith('+15551234567');
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 when neither threadId nor phone is provided', async () => {
+    const res = await request(app).get('/api/conversation');
+    expect(res.status).toBe(400);
+  });
+
+  it('looks up thread by threadId when ?threadId= is provided', async () => {
+    getThreadById.mockResolvedValue({ ...mockThread });
+    const res = await request(app).get('/api/conversation?threadId=abc-123');
+    expect(getThreadById).toHaveBeenCalledWith('abc-123');
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+  });
+
+  it('returns 404 when threadId not found', async () => {
+    getThreadById.mockResolvedValue(null);
+    const res = await request(app).get('/api/conversation?threadId=unknown');
+    expect(res.status).toBe(404);
+    expect(res.body.found).toBe(false);
+  });
+
+  it('threadId lookup takes priority over phone when both are provided', async () => {
+    getThreadById.mockResolvedValue({ ...mockThread });
+    const res = await request(app).get('/api/conversation?threadId=abc-123&phone=+15551234567');
+    expect(getThreadById).toHaveBeenCalledWith('abc-123');
+    expect(getThread).not.toHaveBeenCalled();
     expect(res.status).toBe(200);
   });
 });
