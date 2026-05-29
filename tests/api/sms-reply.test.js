@@ -629,6 +629,120 @@ describe('confirmedDatetime and rejectedTimes tracking', () => {
   });
 });
 
+describe('organizer multi-thread routing', () => {
+  const thread1 = {
+    ...baseThread,
+    threadId: 'uuid-1',
+    contactName: 'Bob Smith',
+    waitingForOrganizerApproval: true,
+    pendingContactSuggestion: 'Friday May 30 at 2pm',
+    pendingContactDatetime: '2026-05-30T14:00:00'
+  };
+  const thread2 = {
+    ...baseThread,
+    threadId: 'uuid-2',
+    contactName: 'Jane Doe',
+    status: 'waiting_organizer_initial',
+    proposedTimes: ['Mon Jun 2 at 10am', 'Tue Jun 3 at 3pm']
+  };
+
+  beforeEach(() => {
+    saveThreadById.mockClear();
+    getPendingMessage.mockResolvedValue(null);
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: true,
+      contactMsg: 'Meeting confirmed!',
+      organizerAck: "Confirmed! I've let Bob know."
+    });
+    getOrganizerInitialContactMessage.mockResolvedValue('Hi Jane! Alice can do Mon Jun 2 or Tue Jun 3 — which works?');
+  });
+
+  it('auto-routes to the single waiting thread without disambiguation', async () => {
+    getPhoneIndex.mockResolvedValue(['uuid-1']);
+    getThreadById.mockResolvedValue({ ...thread1 });
+    await post({ From: '+15550009999', Body: 'Yes that works' });
+    expect(getOrganizerApprovalDecision).toHaveBeenCalled();
+    expect(setPendingMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends disambiguation list when 2 threads are waiting', async () => {
+    getPhoneIndex.mockResolvedValue(['uuid-1', 'uuid-2']);
+    getThreadById
+      .mockResolvedValueOnce({ ...thread1 })
+      .mockResolvedValueOnce({ ...thread2 });
+    const res = await post({ From: '+15550009999', Body: 'Yes that works' });
+    expect(setPendingMessage).toHaveBeenCalledWith('+15550009999', 'Yes that works');
+    expect(res.text).toContain('Bob Smith');
+    expect(res.text).toContain('Jane Doe');
+    expect(res.text).toContain('1.');
+    expect(res.text).toContain('2.');
+  });
+
+  it('routes pending message to selected thread when organizer replies with number', async () => {
+    getPendingMessage.mockResolvedValue('Yes that works');
+    getPhoneIndex.mockResolvedValue(['uuid-1', 'uuid-2']);
+    getThreadById
+      .mockResolvedValueOnce({ ...thread1 })
+      .mockResolvedValueOnce({ ...thread2 });
+    await post({ From: '+15550009999', Body: '1' });
+    expect(deletePendingMessage).toHaveBeenCalledWith('+15550009999');
+    expect(getOrganizerApprovalDecision).toHaveBeenCalled();
+  });
+
+  it('re-shows disambiguation list on invalid selection', async () => {
+    getPendingMessage.mockResolvedValue('Yes that works');
+    getPhoneIndex.mockResolvedValue(['uuid-1', 'uuid-2']);
+    getThreadById
+      .mockResolvedValueOnce({ ...thread1 })
+      .mockResolvedValueOnce({ ...thread2 });
+    const res = await post({ From: '+15550009999', Body: '9' });
+    expect(deletePendingMessage).not.toHaveBeenCalled();
+    expect(res.text).toContain('Bob Smith');
+    expect(res.text).toContain('Jane Doe');
+  });
+
+  it('shows disambiguation list when none are waiting (unsolicited update with 2 active)', async () => {
+    const pendingThread = { ...baseThread, threadId: 'uuid-1', contactName: 'Bob Smith' };
+    const pendingThread2 = { ...baseThread, threadId: 'uuid-2', contactName: 'Jane Doe' };
+    getPhoneIndex.mockResolvedValue(['uuid-1', 'uuid-2']);
+    getThreadById
+      .mockResolvedValueOnce(pendingThread)
+      .mockResolvedValueOnce(pendingThread2);
+    getOrganizerUpdateReply.mockResolvedValue("Hi! Alice updated availability.");
+    const res = await post({ From: '+15550009999', Body: "I'm free Thursday instead" });
+    expect(setPendingMessage).toHaveBeenCalledWith('+15550009999', "I'm free Thursday instead");
+    expect(res.text).toContain('Bob Smith');
+    expect(res.text).toContain('Jane Doe');
+  });
+
+  it('auto-routes unsolicited update when only one active thread exists', async () => {
+    getPhoneIndex.mockResolvedValue(['uuid-1']);
+    getThreadById.mockResolvedValue({ ...baseThread, threadId: 'uuid-1' });
+    getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is free Thursday instead.");
+    await post({ From: '+15550009999', Body: "I'm free Thursday instead" });
+    expect(getOrganizerUpdateReply).toHaveBeenCalled();
+    expect(setPendingMessage).not.toHaveBeenCalled();
+  });
+
+  it('disambiguation list includes pending time for waitingForOrganizerApproval threads', async () => {
+    getPhoneIndex.mockResolvedValue(['uuid-1', 'uuid-2']);
+    getThreadById
+      .mockResolvedValueOnce({ ...thread1 })
+      .mockResolvedValueOnce({ ...thread2 });
+    const res = await post({ From: '+15550009999', Body: 'Yes' });
+    expect(res.text).toContain('Friday May 30 at 2pm');
+  });
+
+  it('disambiguation list includes proposed times for waiting_organizer_initial threads', async () => {
+    getPhoneIndex.mockResolvedValue(['uuid-1', 'uuid-2']);
+    getThreadById
+      .mockResolvedValueOnce({ ...thread1 })
+      .mockResolvedValueOnce({ ...thread2 });
+    const res = await post({ From: '+15550009999', Body: 'Yes' });
+    expect(res.text).toContain('Mon Jun 2 at 10am');
+  });
+});
+
 describe('SMS template substitution', () => {
   it('substitutes {organizerName} in confirmationMessage', async () => {
     setupThread({ ...baseThread });

@@ -96,10 +96,62 @@ async function loadActiveThreadsForPhone(phone) {
   return results.filter(t => t !== null && t.status !== 'confirmed');
 }
 
+function buildDisambiguationList(threads) {
+  const items = threads.map((t, i) => {
+    let context;
+    if (t.waitingForOrganizerApproval) {
+      context = `approving: ${t.pendingContactSuggestion}`;
+    } else if (t.status === 'waiting_organizer_initial') {
+      context = `initial review — proposed: ${(t.proposedTimes || []).join(', ')}`;
+    } else {
+      const lastMsg = (t.directorMessages || []).slice(-1)[0];
+      context = lastMsg
+        ? `last update: ${lastMsg}`
+        : `pending — proposed: ${(t.proposedTimes || []).join(', ')}`;
+    }
+    return `${i + 1}. ${t.contactName} — ${context}`;
+  });
+  return `You have ${threads.length} active conversations. Which are you responding to?\n${items.join('\n')}`;
+}
+
 async function handleOrganizerRouting(organizerPhone, incomingMessage, res, settings, orgThreads) {
-  // Task 5 will replace this with disambiguation logic.
-  // For now, just pick the first thread and delegate.
-  return handleOrganizerReply(orgThreads[0], incomingMessage, res, settings);
+  const pendingMsg = await getPendingMessage(organizerPhone);
+
+  const waitingThreads = orgThreads.filter(
+    t => t.status === 'waiting_organizer_initial' || t.waitingForOrganizerApproval
+  );
+
+  // Mid-disambiguation: organizer is selecting from a previously shown list
+  if (pendingMsg !== null) {
+    const listThreads = waitingThreads.length >= 2 ? waitingThreads : orgThreads;
+    const num = parseInt(incomingMessage.trim(), 10);
+    if (num >= 1 && num <= listThreads.length) {
+      await deletePendingMessage(organizerPhone);
+      return handleOrganizerReply(listThreads[num - 1], pendingMsg, res, settings);
+    }
+    // Invalid selection — re-show list
+    return res.send(twimlReply(buildDisambiguationList(listThreads)));
+  }
+
+  // 1 waiting → auto-route
+  if (waitingThreads.length === 1) {
+    return handleOrganizerReply(waitingThreads[0], incomingMessage, res, settings);
+  }
+
+  // 2+ waiting → disambiguation
+  if (waitingThreads.length >= 2) {
+    await setPendingMessage(organizerPhone, incomingMessage);
+    return res.send(twimlReply(buildDisambiguationList(waitingThreads)));
+  }
+
+  // 0 waiting: unsolicited update
+  if (orgThreads.length === 1) {
+    return handleOrganizerReply(orgThreads[0], incomingMessage, res, settings);
+  }
+
+  // Multiple active, none waiting — disambiguation across all active
+  await setPendingMessage(organizerPhone, incomingMessage);
+  return res.send(twimlReply(buildDisambiguationList(orgThreads)));
 }
 
 app.post('/api/sms-reply', async (req, res) => {
