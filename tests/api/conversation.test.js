@@ -2,9 +2,9 @@ const request = require('supertest');
 
 jest.mock('../../lib/kv', () => ({
   getThreadById: jest.fn(),
-  getThread: jest.fn()
+  getPhoneIndex: jest.fn()
 }));
-const { getThreadById, getThread } = require('../../lib/kv');
+const { getThreadById, getPhoneIndex } = require('../../lib/kv');
 const app = require('../../api/conversation');
 
 const mockThread = {
@@ -29,7 +29,7 @@ const mockThread = {
 };
 
 describe('GET /api/conversation', () => {
-  beforeEach(() => { getThread.mockReset(); getThreadById.mockReset(); });
+  beforeEach(() => { getPhoneIndex.mockReset(); getThreadById.mockReset(); });
 
   it('returns 400 when phone param is missing', async () => {
     const res = await request(app).get('/api/conversation');
@@ -38,7 +38,7 @@ describe('GET /api/conversation', () => {
   });
 
   it('returns 404 with found:false when no thread exists', async () => {
-    getThread.mockResolvedValue(null);
+    getPhoneIndex.mockResolvedValue([]);
     const res = await request(app).get('/api/conversation?phone=+19999999999');
     expect(res.status).toBe(404);
     expect(res.body.found).toBe(false);
@@ -46,7 +46,8 @@ describe('GET /api/conversation', () => {
   });
 
   it('returns 200 with both conversation histories when thread found', async () => {
-    getThread.mockResolvedValue({ ...mockThread });
+    getPhoneIndex.mockResolvedValue(['abc-123']);
+    getThreadById.mockResolvedValue({ ...mockThread });
     const res = await request(app).get('/api/conversation?phone=+15551234567');
     expect(res.status).toBe(200);
     expect(res.body.found).toBe(true);
@@ -55,7 +56,8 @@ describe('GET /api/conversation', () => {
   });
 
   it('includes status, waitingForOrganizerApproval, contactName, organizerName, contactPhone, organizerPhone', async () => {
-    getThread.mockResolvedValue({ ...mockThread });
+    getPhoneIndex.mockResolvedValue(['abc-123']);
+    getThreadById.mockResolvedValue({ ...mockThread });
     const res = await request(app).get('/api/conversation?phone=+15551234567');
     expect(res.body.status).toBe('pending');
     expect(res.body.waitingForOrganizerApproval).toBe(false);
@@ -66,7 +68,8 @@ describe('GET /api/conversation', () => {
   });
 
   it('excludes sensitive fields', async () => {
-    getThread.mockResolvedValue({ ...mockThread });
+    getPhoneIndex.mockResolvedValue(['abc-123']);
+    getThreadById.mockResolvedValue({ ...mockThread });
     const res = await request(app).get('/api/conversation?phone=+15551234567');
     expect(res.body.organizerEmail).toBeUndefined();
     expect(res.body.threadId).toBeUndefined();
@@ -76,14 +79,15 @@ describe('GET /api/conversation', () => {
   });
 
   it('returns empty arrays when histories are missing (old threads)', async () => {
-    getThread.mockResolvedValue({ ...mockThread, conversationHistory: undefined, organizerConversationHistory: undefined });
+    getPhoneIndex.mockResolvedValue(['abc-123']);
+    getThreadById.mockResolvedValue({ ...mockThread, conversationHistory: undefined, organizerConversationHistory: undefined });
     const res = await request(app).get('/api/conversation?phone=+15551234567');
     expect(res.body.conversationHistory).toEqual([]);
     expect(res.body.organizerConversationHistory).toEqual([]);
   });
 
   it('returns 500 on Redis error without leaking error detail', async () => {
-    getThread.mockRejectedValue(new Error('Redis timeout'));
+    getPhoneIndex.mockRejectedValue(new Error('Redis timeout'));
     const res = await request(app).get('/api/conversation?phone=+15551234567');
     expect(res.status).toBe(500);
     expect(res.body.detail).toBeUndefined();
@@ -91,9 +95,10 @@ describe('GET /api/conversation', () => {
   });
 
   it('restores + sign when browser URL-encodes it as a space', async () => {
-    getThread.mockResolvedValue({ ...mockThread });
+    getPhoneIndex.mockResolvedValue(['abc-123']);
+    getThreadById.mockResolvedValue({ ...mockThread });
     const res = await request(app).get('/api/conversation?phone=%2015551234567');
-    expect(getThread).toHaveBeenCalledWith('+15551234567');
+    expect(getPhoneIndex).toHaveBeenCalledWith('+15551234567');
     expect(res.status).toBe(200);
   });
 
@@ -121,7 +126,7 @@ describe('GET /api/conversation', () => {
     getThreadById.mockResolvedValue({ ...mockThread });
     const res = await request(app).get('/api/conversation?threadId=abc-123&phone=+15551234567');
     expect(getThreadById).toHaveBeenCalledWith('abc-123');
-    expect(getThread).not.toHaveBeenCalled();
+    expect(getPhoneIndex).not.toHaveBeenCalled();
     expect(res.status).toBe(200);
   });
 });

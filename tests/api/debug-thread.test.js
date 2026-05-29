@@ -1,7 +1,10 @@
 const request = require('supertest');
 
-jest.mock('../../lib/kv', () => ({ getThread: jest.fn() }));
-const { getThread } = require('../../lib/kv');
+jest.mock('../../lib/kv', () => ({
+  getPhoneIndex: jest.fn(),
+  getThreadById: jest.fn()
+}));
+const { getPhoneIndex, getThreadById } = require('../../lib/kv');
 const app = require('../../api/debug-thread');
 
 const mockThread = {
@@ -24,7 +27,14 @@ const mockThread = {
   ]
 };
 
+function setupPhoneThread(thread) {
+  getPhoneIndex.mockResolvedValue([thread.threadId]);
+  getThreadById.mockResolvedValue({ ...thread });
+}
+
 describe('GET /api/debug-thread', () => {
+  beforeEach(() => { getPhoneIndex.mockReset(); getThreadById.mockReset(); });
+
   it('returns 400 when phone param is missing', async () => {
     const res = await request(app).get('/api/debug-thread');
     expect(res.status).toBe(400);
@@ -32,14 +42,14 @@ describe('GET /api/debug-thread', () => {
   });
 
   it('returns 404 when no thread found for phone', async () => {
-    getThread.mockResolvedValue(null);
+    getPhoneIndex.mockResolvedValue([]);
     const res = await request(app).get('/api/debug-thread?phone=+19999999999');
     expect(res.status).toBe(404);
     expect(res.body.found).toBe(false);
   });
 
   it('returns thread summary when found', async () => {
-    getThread.mockResolvedValue({ ...mockThread });
+    setupPhoneThread({ ...mockThread });
     const res = await request(app).get('/api/debug-thread?phone=+18325176982');
     expect(res.status).toBe(200);
     expect(res.body.found).toBe(true);
@@ -48,14 +58,14 @@ describe('GET /api/debug-thread', () => {
   });
 
   it('includes conversationHistoryLength and last two messages', async () => {
-    getThread.mockResolvedValue({ ...mockThread });
+    setupPhoneThread({ ...mockThread });
     const res = await request(app).get('/api/debug-thread?phone=+18325176982');
     expect(res.body.conversationHistoryLength).toBe(2);
     expect(res.body.lastTwoMessages).toHaveLength(2);
   });
 
   it('returns 500 on Redis error', async () => {
-    getThread.mockRejectedValue(new Error('Redis timeout'));
+    getPhoneIndex.mockRejectedValue(new Error('Redis timeout'));
     const res = await request(app).get('/api/debug-thread?phone=+18325176982');
     expect(res.status).toBe(500);
     expect(res.body.detail).toBe('Redis timeout');
@@ -63,9 +73,9 @@ describe('GET /api/debug-thread', () => {
 
   it('restores + sign when browser URL-encodes it as a space', async () => {
     // Browsers send ?phone=+18325176982 which Express decodes as ' 18325176982'
-    getThread.mockResolvedValue({ ...mockThread });
+    setupPhoneThread({ ...mockThread });
     const res = await request(app).get('/api/debug-thread?phone=%2018325176982');
-    expect(getThread).toHaveBeenCalledWith('+18325176982');
+    expect(getPhoneIndex).toHaveBeenCalledWith('+18325176982');
     expect(res.status).toBe(200);
   });
 
@@ -82,7 +92,7 @@ describe('GET /api/debug-thread', () => {
 
     it('returns 401 when DEBUG_TOKEN env var is set but no token is provided in request', async () => {
       process.env.DEBUG_TOKEN = 'secret123';
-      getThread.mockResolvedValue({ ...mockThread });
+      setupPhoneThread({ ...mockThread });
       const res = await request(app).get('/api/debug-thread?phone=+18325176982');
       expect(res.status).toBe(401);
       expect(res.body.error).toMatch(/unauthorized/i);
@@ -90,21 +100,21 @@ describe('GET /api/debug-thread', () => {
 
     it('returns 401 when DEBUG_TOKEN is set and wrong token is provided', async () => {
       process.env.DEBUG_TOKEN = 'secret123';
-      getThread.mockResolvedValue({ ...mockThread });
+      setupPhoneThread({ ...mockThread });
       const res = await request(app).get('/api/debug-thread?phone=+18325176982&token=wrong');
       expect(res.status).toBe(401);
     });
 
     it('returns 200 when correct DEBUG_TOKEN is provided', async () => {
       process.env.DEBUG_TOKEN = 'secret123';
-      getThread.mockResolvedValue({ ...mockThread });
+      setupPhoneThread({ ...mockThread });
       const res = await request(app).get('/api/debug-thread?phone=+18325176982&token=secret123');
       expect(res.status).toBe(200);
     });
 
     it('allows unauthenticated access when DEBUG_TOKEN is not set', async () => {
       delete process.env.DEBUG_TOKEN;
-      getThread.mockResolvedValue({ ...mockThread });
+      setupPhoneThread({ ...mockThread });
       const res = await request(app).get('/api/debug-thread?phone=+18325176982');
       expect(res.status).toBe(200);
     });

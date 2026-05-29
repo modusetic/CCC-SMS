@@ -12,8 +12,7 @@ process.env.KV_REST_API_TOKEN = 'test-token';
 const {
   getThreadById, saveThreadById,
   getPhoneIndex, addToPhoneIndex, removeFromPhoneIndex,
-  getPendingMessage, setPendingMessage, deletePendingMessage,
-  getThread, saveThread, deleteThread
+  getPendingMessage, setPendingMessage, deletePendingMessage
 } = require('../../lib/kv');
 
 const TTL = 60 * 60 * 24 * 7;
@@ -114,22 +113,3 @@ describe('pending message', () => {
   });
 });
 
-describe('legacy helpers', () => {
-  it('getThread calls redis.get with phone number directly', async () => {
-    mockGet.mockResolvedValue({ threadId: 'abc' });
-    await getThread('+15551234567');
-    expect(mockGet).toHaveBeenCalledWith('+15551234567');
-  });
-
-  it('saveThread calls redis.set with phone, data, and 7-day TTL', async () => {
-    mockSet.mockResolvedValue('OK');
-    await saveThread('+15551234567', { threadId: 'abc' });
-    expect(mockSet).toHaveBeenCalledWith('+15551234567', { threadId: 'abc' }, { ex: TTL });
-  });
-
-  it('deleteThread calls redis.del with phone number', async () => {
-    mockDel.mockResolvedValue(1);
-    await deleteThread('+15551234567');
-    expect(mockDel).toHaveBeenCalledWith('+15551234567');
-  });
-});

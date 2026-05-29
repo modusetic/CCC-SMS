@@ -1,5 +1,5 @@
 const express = require('express');
-const { getThread } = require('../lib/kv');
+const { getPhoneIndex, getThreadById } = require('../lib/kv');
 
 const app = express();
 app.use(express.json());
@@ -22,7 +22,13 @@ app.get('/api/debug-thread', async (req, res) => {
 
   let thread;
   try {
-    thread = await getThread(phone);
+    const ids = await getPhoneIndex(phone);
+    if (ids.length > 0) {
+      const threads = (await Promise.all(ids.map(id => getThreadById(id)))).filter(Boolean);
+      thread = threads.sort(
+        (a, b) => new Date(b.lastActivityAt || b.createdAt || 0) - new Date(a.lastActivityAt || a.createdAt || 0)
+      )[0] || null;
+    }
   } catch (err) {
     return res.status(500).json({ error: 'Redis lookup failed', detail: err.message });
   }
