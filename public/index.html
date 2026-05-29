@@ -631,6 +631,22 @@
     }
     .settings-field input[type="number"] { width: 90px; }
 
+    /* Autofill button (demo mode only) */
+    .autofill-btn {
+      width: 100%;
+      padding: 9px;
+      background: #ff9f0a;
+      color: #1a1a1a;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+      display: none;
+    }
+    .autofill-btn:hover { background: #e08800; }
+
     /* Demo mode banner */
     .demo-banner {
       display: none;
@@ -880,6 +896,7 @@
       <button type="button" class="add-btn" id="addBackupBtn">+ Add backup time slot</button>
     </div>
 
+    <button type="button" class="autofill-btn" id="autofillBtn">⚡ Autofill for testing</button>
     <button type="submit" class="submit-btn" id="submitBtn">Send scheduling SMS</button>
 
     <div class="toast" id="toast"></div>
@@ -1137,6 +1154,18 @@
     document.getElementById('backupTimesList').appendChild(buildRow('backupTimesList'));
   });
 
+  // ── Demo autofill helpers ─────────────────────────────────────────────────
+  const _FIRST = ['James','Maria','Carlos','Sofia','David','Emma','Luis','Ashley','Kevin','Diana'];
+  const _LAST  = ['Smith','Garcia','Johnson','Martinez','Brown','Davis','Lopez','Wilson','Taylor','Anderson'];
+  function _rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function _randomName()  { return `${_rand(_FIRST)} ${_rand(_LAST)}`; }
+  function _randomPhone() {
+    const area = Math.floor(Math.random() * 800) + 200;
+    const exch = Math.floor(Math.random() * 800) + 200;
+    const line = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    return `${area}${exch}${line}`;
+  }
+
   // ── Phone helpers ─────────────────────────────────────────────────────────
   // Combines the country-code select with the number input into E.164.
   // Strips any spaces/dashes the user types in the number field.
@@ -1342,6 +1371,7 @@
     const orgReady = demoModeActive && !!activeOrganizerPhone;
     document.getElementById('contactDemoRow').classList.toggle('visible', contactReady);
     document.getElementById('organizerDemoRow').classList.toggle('visible', orgReady);
+    document.getElementById('autofillBtn').style.display = demoModeActive ? 'block' : 'none';
   }
 
   async function sendDemoReply(side) {
@@ -1462,6 +1492,17 @@
     }
   });
 
+  // ── Demo autofill button ──────────────────────────────────────────────────
+  document.getElementById('autofillBtn').addEventListener('click', () => {
+    document.getElementById('contactName').value    = _randomName();
+    document.getElementById('contactPhone').value   = _randomPhone();
+    document.getElementById('contactCountry').value = '+1';
+    document.getElementById('organizerName').value  = _randomName();
+    document.getElementById('organizerPhone').value = _randomPhone();
+    document.getElementById('organizerCountry').value = '+1';
+    document.getElementById('organizerEmail').value = 'fernvayllc@gmail.com';
+  });
+
   // ── Demo reply buttons ────────────────────────────────────────────────────
   document.getElementById('contactDemoSendBtn').addEventListener('click', () => sendDemoReply('contact'));
   document.getElementById('organizerDemoSendBtn').addEventListener('click', () => sendDemoReply('organizer'));
@@ -1476,6 +1517,7 @@
       const s = await res.json();
       demoModeActive = s.demoMode ?? false;
       document.getElementById('demoBanner').style.display = demoModeActive ? 'block' : 'none';
+      updateDemoInputVisibility();
     } catch (_) {}
   })();
 </script>
