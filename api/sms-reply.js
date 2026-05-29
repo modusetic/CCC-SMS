@@ -214,6 +214,7 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
       const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage, settings);
       const smsSafe = truncate(aiMsg, settings.maxMessageLength);
       const ackMsg = `Got it! I've let ${thread.contactName} know about your updated availability.`;
+      thread.conversationHistory.push({ role: 'model', content: smsSafe });
       pushOrganizerHistory(thread, incomingMessage, ackMsg);
       await saveBoth(thread);
       await demoSendSms(thread.contactPhone, smsSafe, settings.demoMode);
@@ -264,6 +265,7 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
 
       const contactMsg = truncate(decision.contactMsg, settings.maxMessageLength);
       const orgAck = truncate(decision.organizerAck, settings.maxMessageLength);
+      thread.conversationHistory.push({ role: 'model', content: contactMsg });
       pushOrganizerHistory(thread, incomingMessage, orgAck);
       await saveBoth(thread);
 

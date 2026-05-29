@@ -291,6 +291,21 @@ describe('organizer messages — counter-proposal approval', () => {
     expect(res.text).toContain('forwarded');
   });
 
+  it('saves contactMsg to conversationHistory when organizer rejects counter-proposal', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...pendingThread, conversationHistory: [] });
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: false,
+      contactMsg: "Alice suggests Monday at 3pm instead.",
+      organizerAck: "Got it! I've forwarded your message to Bob."
+    });
+    await post({ From: '+15550009999', Body: 'Monday at 3pm instead' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.conversationHistory).toHaveLength(1);
+    expect(saved.conversationHistory[0]).toEqual({ role: 'model', content: "Alice suggests Monday at 3pm instead." });
+  });
+
 });
 
 describe('organizer messages — unsolicited availability update', () => {
@@ -332,6 +347,19 @@ describe('organizer messages — unsolicited availability update', () => {
         directorAlternatives: expect.arrayContaining(['Try Friday at 4pm instead'])
       })
     );
+  });
+
+  it('saves AI reply to conversationHistory when organizer sends unsolicited update', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...baseThread, conversationHistory: [] });
+    await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.conversationHistory).toHaveLength(1);
+    expect(saved.conversationHistory[0]).toEqual({
+      role: 'model',
+      content: "Hi Bob! Alice is now free at 3pm instead. Does that work for you?"
+    });
   });
 });
 
