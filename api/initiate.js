@@ -1,6 +1,6 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { saveThread } = require('../lib/kv');
+const { saveThreadById, addToPhoneIndex } = require('../lib/kv');
 const { sendSms } = require('../lib/twilio');
 const { getSettings, DEFAULTS } = require('../lib/settings');
 
@@ -111,7 +111,11 @@ app.post('/api/initiate', async (req, res) => {
         `${contactName} wants to schedule. Proposed ${timeWord(n)}: ${listTimes(proposedTimes)}. Reply to confirm or suggest different times.`
       );
       thread.organizerConversationHistory.push({ role: 'model', content: smsBody });
-      await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
+      await saveThreadById(thread.threadId, thread);
+      await Promise.all([
+        addToPhoneIndex(normalizedContactPhone, thread.threadId),
+        addToPhoneIndex(normalizedOrganizerPhone, thread.threadId)
+      ]);
       console.log(`[initiate] thread ${thread.threadId} saved (waiting_organizer_initial) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
       await demoSendSms(normalizedOrganizerPhone, smsBody, demoMode);
 
@@ -131,7 +135,11 @@ app.post('/api/initiate', async (req, res) => {
       // Putting it in conversationHistory would create two consecutive 'model' entries
       // which breaks Gemini's multi-turn API.
       thread.organizerConversationHistory.push({ role: 'model', content: orgFyi });
-      await Promise.all([saveThread(normalizedContactPhone, thread), saveThread(normalizedOrganizerPhone, thread)]);
+      await saveThreadById(thread.threadId, thread);
+      await Promise.all([
+        addToPhoneIndex(normalizedContactPhone, thread.threadId),
+        addToPhoneIndex(normalizedOrganizerPhone, thread.threadId)
+      ]);
       console.log(`[initiate] thread ${thread.threadId} saved (pending+backupTimes) contact=${normalizedContactPhone} organizer=${normalizedOrganizerPhone}`);
       await demoSendSms(normalizedContactPhone, contactMsg, demoMode);
       await demoSendSms(normalizedOrganizerPhone, orgFyi, demoMode);
@@ -145,7 +153,8 @@ app.post('/api/initiate', async (req, res) => {
         `Hi ${contactName}! ${organizerName} would like to meet. ${label}: ${listTimes(proposedTimes)}. ${worksQ(n)}`
       );
       thread.conversationHistory.push({ role: 'model', content: smsBody });
-      await saveThread(normalizedContactPhone, thread);
+      await saveThreadById(thread.threadId, thread);
+      await addToPhoneIndex(normalizedContactPhone, thread.threadId);
       console.log(`[initiate] thread ${thread.threadId} saved (pending, no organizer) contact=${normalizedContactPhone}`);
       await demoSendSms(normalizedContactPhone, smsBody, demoMode);
     }

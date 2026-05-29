@@ -1,7 +1,8 @@
 const request = require('supertest');
 
 jest.mock('../../lib/kv', () => ({
-  saveThread: jest.fn().mockResolvedValue(undefined)
+  saveThreadById: jest.fn().mockResolvedValue(undefined),
+  addToPhoneIndex: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('../../lib/twilio', () => ({
@@ -21,7 +22,7 @@ jest.mock('../../lib/settings', () => ({
   }
 }));
 
-const { saveThread } = require('../../lib/kv');
+const { saveThreadById, addToPhoneIndex } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
 const { getSettings } = require('../../lib/settings');
 const app = require('../../api/initiate');
@@ -49,7 +50,8 @@ describe('POST /api/initiate — no organizer phone', () => {
 
   it('saves thread with status pending', async () => {
     await request(app).post('/api/initiate').send(base);
-    expect(saveThread).toHaveBeenCalledWith('+15551234567', expect.objectContaining({ status: 'pending' }));
+    expect(saveThreadById).toHaveBeenCalledWith('test-uuid-1234', expect.objectContaining({ status: 'pending' }));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid-1234');
   });
 });
 
@@ -68,15 +70,16 @@ describe('POST /api/initiate — organizer phone, no backup times', () => {
 
   it('saves thread with status waiting_organizer_initial', async () => {
     await request(app).post('/api/initiate').send(body);
-    expect(saveThread).toHaveBeenCalledWith(
-      '+15551234567',
+    expect(saveThreadById).toHaveBeenCalledWith(
+      'test-uuid-1234',
       expect.objectContaining({ status: 'waiting_organizer_initial' })
     );
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid-1234');
   });
 
-  it('saves thread under organizer phone too', async () => {
+  it('adds organizer phone to phone index', async () => {
     await request(app).post('/api/initiate').send(body);
-    expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid-1234');
   });
 });
 
@@ -99,7 +102,8 @@ describe('POST /api/initiate — organizer phone + backup times', () => {
 
   it('saves thread with status pending', async () => {
     await request(app).post('/api/initiate').send(body);
-    expect(saveThread).toHaveBeenCalledWith('+15551234567', expect.objectContaining({ status: 'pending' }));
+    expect(saveThreadById).toHaveBeenCalledWith('test-uuid-1234', expect.objectContaining({ status: 'pending' }));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid-1234');
   });
 });
 
@@ -119,30 +123,31 @@ describe('POST /api/initiate — validation', () => {
 describe('POST /api/initiate — phone normalization', () => {
   it('normalizes contact phone without + to E.164', async () => {
     await request(app).post('/api/initiate').send({ ...base, contactPhone: '15551234567' });
-    expect(saveThread).toHaveBeenCalledWith('+15551234567', expect.any(Object));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid-1234');
     expect(sendSms).toHaveBeenCalledWith('+15551234567', expect.any(String));
   });
 
   it('normalizes formatted contact phone to E.164', async () => {
     // Input includes country code 1; normalizer strips parens/spaces/dashes and prepends +
     await request(app).post('/api/initiate').send({ ...base, contactPhone: '1 (555) 123-4567' });
-    expect(saveThread).toHaveBeenCalledWith('+15551234567', expect.any(Object));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid-1234');
   });
 
   it('normalizes organizer phone without + to E.164', async () => {
     await request(app).post('/api/initiate').send({ ...base, organizerPhone: '15550009999' });
-    expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid-1234');
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.any(String));
   });
 
   it('leaves already-correct E.164 phones unchanged', async () => {
     await request(app).post('/api/initiate').send({ ...base, organizerPhone: '+15550009999' });
-    expect(saveThread).toHaveBeenCalledWith('+15550009999', expect.any(Object));
+    expect(addToPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid-1234');
   });
 
   it('treats garbage-only organizer phone as absent and routes to no-organizer branch', async () => {
     sendSms.mockClear();
-    saveThread.mockClear();
+    saveThreadById.mockClear();
+    addToPhoneIndex.mockClear();
     const res = await request(app).post('/api/initiate').send({ ...base, organizerPhone: '---' });
     expect(res.status).toBe(200);
     // Should NOT try to send to "+" (garbage normalised result)
@@ -161,20 +166,22 @@ describe('POST /api/initiate — phone normalization', () => {
 
 describe('POST /api/initiate — organizerConversationHistory', () => {
   beforeEach(() => {
-    saveThread.mockClear();
+    saveThreadById.mockClear();
+    addToPhoneIndex.mockClear();
     sendSms.mockClear();
   });
 
   it('initializes every thread with empty organizerConversationHistory', async () => {
     await request(app).post('/api/initiate').send(base);
-    const saved = saveThread.mock.calls[0][1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.organizerConversationHistory).toEqual([]);
   });
 
   it('pushes organizer review SMS to organizerConversationHistory in branch 1', async () => {
     const body = { ...base, organizerPhone: '+15550009999' };
     await request(app).post('/api/initiate').send(body);
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    // only one saveThreadById call; organizer data is in the thread
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(1);
     expect(saved.organizerConversationHistory[0].role).toBe('model');
     expect(saved.organizerConversationHistory[0].content).toMatch(/Reply to confirm/i);
@@ -187,7 +194,8 @@ describe('POST /api/initiate — organizerConversationHistory', () => {
       directorAlternatives: ['Wednesday at 3pm']
     };
     await request(app).post('/api/initiate').send(body);
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    // only one saveThreadById call
+    const saved = saveThreadById.mock.calls[0][1];
     // conversationHistory must have exactly 1 entry (contactMsg only — no orgFyi)
     expect(saved.conversationHistory).toHaveLength(1);
     expect(saved.conversationHistory[0].role).toBe('model');
@@ -200,47 +208,50 @@ describe('POST /api/initiate — organizerConversationHistory', () => {
 
 describe('POST /api/initiate — new schema fields', () => {
   beforeEach(() => {
-    saveThread.mockClear();
+    saveThreadById.mockClear();
+    addToPhoneIndex.mockClear();
     sendSms.mockClear();
   });
 
   it('initializes directorMessages, rejectedTimes as empty arrays', async () => {
     await request(app).post('/api/initiate').send(base);
-    const saved = saveThread.mock.calls[0][1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.directorMessages).toEqual([]);
     expect(saved.rejectedTimes).toEqual([]);
   });
 
   it('initializes confirmedDatetime as null', async () => {
     await request(app).post('/api/initiate').send(base);
-    const saved = saveThread.mock.calls[0][1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.confirmedDatetime).toBeNull();
   });
 
   it('sets lastActivityAt on thread creation', async () => {
     await request(app).post('/api/initiate').send(base);
-    const saved = saveThread.mock.calls[0][1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.lastActivityAt).toBeDefined();
     expect(typeof saved.lastActivityAt).toBe('string');
   });
 
   it('sets offeredTimes to proposedTimes in no-organizer branch', async () => {
     await request(app).post('/api/initiate').send(base);
-    const saved = saveThread.mock.calls[0][1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.offeredTimes).toEqual(base.proposedTimes);
   });
 
   it('sets offeredTimes to backupTimes in organizer+backup branch', async () => {
     const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wednesday at 3pm'] };
     await request(app).post('/api/initiate').send(body);
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    // only one saveThreadById call
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.offeredTimes).toEqual(['Wednesday at 3pm']);
   });
 
   it('offeredTimes is empty in waiting_organizer_initial branch', async () => {
     const body = { ...base, organizerPhone: '+15550009999' };
     await request(app).post('/api/initiate').send(body);
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    // only one saveThreadById call
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.offeredTimes).toEqual([]);
   });
 });
