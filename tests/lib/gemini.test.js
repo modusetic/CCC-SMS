@@ -87,6 +87,26 @@ describe('getNextReply', () => {
     expect(mockSendMessage).toHaveBeenCalledWith('Monday works!');
   });
 
+  it('merges consecutive model messages in history so Gemini never sees non-alternating roles', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Great!' } });
+    const threadWithConsecutiveModel = {
+      ...mockThread,
+      conversationHistory: [
+        { role: 'model', content: 'First message' },
+        { role: 'user', content: 'User reply' },
+        { role: 'model', content: 'AI holding response' },
+        { role: 'model', content: 'Organizer update forwarded to contact' }
+      ]
+    };
+    await getNextReply(threadWithConsecutiveModel, 'New contact message');
+    expect(mockStartChat).toHaveBeenCalledWith({
+      history: [
+        { role: 'user', parts: [{ text: 'User reply' }] },
+        { role: 'model', parts: [{ text: 'AI holding response\nOrganizer update forwarded to contact' }] }
+      ]
+    });
+  });
+
   it('returns the text response from Gemini', async () => {
     mockSendMessage.mockResolvedValue({ response: { text: () => 'Sounds great!' } });
     const reply = await getNextReply(mockThread, 'Monday at 2pm');
@@ -162,6 +182,18 @@ describe('getOrganizerApprovalDecision', () => {
     expect(call).toContain('Bob');
     expect(call).toContain('Friday at 2pm');
   });
+
+  it('includes directorAlternatives in the prompt when provided via context', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"approved":false,"contactMsg":"Try Monday.","organizerAck":"Got it."}' }
+    });
+    await getOrganizerApprovalDecision('Alice', 'Bob', 'Friday at 2pm', "Can't do Friday", {}, {
+      directorAlternatives: ['Monday at 3pm', 'Tuesday at 11am']
+    });
+    const call = mockGenerateContent.mock.calls[0][0];
+    expect(call).toContain('Monday at 3pm');
+    expect(call).toContain('Tuesday at 11am');
+  });
 });
 
 describe('getOrganizerUpdateReply', () => {
@@ -188,6 +220,19 @@ describe('getOrganizerUpdateReply', () => {
         systemInstruction: expect.stringContaining('Alice')
       })
     );
+  });
+
+  it('includes proposedTimes and lastContactMsg from context in the prompt', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi Bob!' } });
+    await getOrganizerUpdateReply('Alice', 'Bob', 'Try 4pm', {}, {
+      proposedTimes: ['Monday at 2pm', 'Tuesday at 10am'],
+      directorAlternatives: ['Wednesday at 3pm'],
+      lastContactMsg: 'None of those work for me'
+    });
+    const call = mockGenerateContent.mock.calls[0][0];
+    expect(call).toContain('Monday at 2pm');
+    expect(call).toContain('Wednesday at 3pm');
+    expect(call).toContain('None of those work for me');
   });
 });
 

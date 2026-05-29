@@ -72,6 +72,12 @@ async function saveBoth(thread) {
   await Promise.all(saves);
 }
 
+// Return the last model message from conversationHistory, or null.
+function lastModelMsg(thread) {
+  const msgs = (thread.conversationHistory || []).filter(m => m.role === 'model');
+  return msgs.length > 0 ? msgs[msgs.length - 1].content : null;
+}
+
 app.post('/api/sms-reply', async (req, res) => {
   res.set('Content-Type', 'text/xml');
 
@@ -114,6 +120,8 @@ app.post('/api/sms-reply', async (req, res) => {
 });
 
 async function handleContactReply(thread, incomingMessage, res, settings) {
+  // Contact texts while organizer is still reviewing the initial proposed times.
+  // Record the message so context isn't lost when the organizer approves later.
   if (thread.status === 'waiting_organizer_initial') {
     const msg = truncate(
       applyTemplate(settings.holdingMessage, {
@@ -122,7 +130,31 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       }),
       settings.maxMessageLength
     );
+    thread.conversationHistory.push({ role: 'user', content: incomingMessage });
+    thread.conversationHistory.push({ role: 'model', content: msg });
+    await saveBoth(thread);
     return res.send(twimlReply(msg));
+  }
+
+  // Contact texts while we're waiting for the organizer to approve their counter-proposal.
+  // Send a brief hold; don't call Gemini (it has no new info to act on).
+  if (thread.waitingForOrganizerApproval) {
+    const holdMsg = truncate(
+      `Still checking with ${thread.organizerName} — I'll get back to you shortly!`,
+      settings.maxMessageLength
+    );
+    return res.send(twimlReply(holdMsg));
+  }
+
+  // Hard stop once the exchange limit is reached.
+  if (thread.attempts >= settings.maxExchanges) {
+    const finalMsg = truncate(
+      `I've had trouble finding a time that works for everyone. ${thread.organizerName} will be in touch with you directly to sort this out. Thanks for your patience!`,
+      settings.maxMessageLength
+    );
+    thread.conversationHistory.push({ role: 'model', content: finalMsg });
+    await saveBoth(thread);
+    return res.send(twimlReply(finalMsg));
   }
 
   try {
@@ -211,7 +243,14 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
   if (!thread.waitingForOrganizerApproval) {
     try {
       thread.directorAlternatives = [...(thread.directorAlternatives || []), incomingMessage];
-      const aiMsg = await getOrganizerUpdateReply(thread.organizerName, thread.contactName, incomingMessage, settings);
+      const aiMsg = await getOrganizerUpdateReply(
+        thread.organizerName, thread.contactName, incomingMessage, settings,
+        {
+          proposedTimes: thread.proposedTimes || [],
+          directorAlternatives: thread.directorAlternatives || [],
+          lastContactMsg: lastModelMsg(thread)
+        }
+      );
       const smsSafe = truncate(aiMsg, settings.maxMessageLength);
       const ackMsg = `Got it! I've let ${thread.contactName} know about your updated availability.`;
       thread.conversationHistory.push({ role: 'model', content: smsSafe });
@@ -229,7 +268,8 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
   try {
     const decision = await getOrganizerApprovalDecision(
       thread.organizerName, thread.contactName,
-      thread.pendingContactSuggestion, incomingMessage, settings
+      thread.pendingContactSuggestion, incomingMessage, settings,
+      { directorAlternatives: thread.directorAlternatives || [] }
     );
 
     console.log(`[sms-reply] organizer approval decision=${decision.approved}`);

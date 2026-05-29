@@ -320,7 +320,8 @@ describe('organizer messages — unsolicited availability update', () => {
       'Alice',
       'Bob',
       "I can't May 26 at 2pm but I can at 3pm",
-      expect.any(Object)
+      expect.any(Object),
+      expect.any(Object)  // context: { proposedTimes, directorAlternatives, lastContactMsg }
     );
   });
 
@@ -454,6 +455,111 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
     await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
     const contactSaved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
     expect(contactSaved.organizerConversationHistory).toHaveLength(2);
+  });
+});
+
+describe('contact texts while waiting for organizer approval (counter-proposal hold)', () => {
+  const pendingApprovalThread = {
+    ...baseThread,
+    waitingForOrganizerApproval: true,
+    pendingContactSuggestion: 'Friday May 22 at 2pm',
+    pendingContactDatetime: '2026-05-22T14:00:00'
+  };
+
+  it('returns a hold message without calling Gemini', async () => {
+    getThread.mockResolvedValue({ ...pendingApprovalThread });
+    const res = await post({ From: '+15551234567', Body: 'Any update?' });
+    expect(res.status).toBe(200);
+    expect(getNextReply).not.toHaveBeenCalled();
+    expect(res.text).toContain('checking with Alice');
+  });
+
+  it('does not increment attempts or modify thread', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...pendingApprovalThread });
+    await post({ From: '+15551234567', Body: 'Any update?' });
+    expect(saveThread).not.toHaveBeenCalled();
+  });
+});
+
+describe('maxExchanges hard stop', () => {
+  it('sends final give-up message when attempts reaches maxExchanges', async () => {
+    getThread.mockResolvedValue({ ...baseThread, attempts: 6 });
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false
+    });
+    const res = await post({ From: '+15551234567', Body: 'Still nothing works for me' });
+    expect(getNextReply).not.toHaveBeenCalled();
+    expect(res.text).toContain('Alice');
+    expect(res.text).toContain('will be in touch');
+  });
+
+  it('does not send final message when attempts is one below maxExchanges', async () => {
+    getThread.mockResolvedValue({ ...baseThread, attempts: 5 });
+    getNextReply.mockResolvedValue('How about Thursday?');
+    const res = await post({ From: '+15551234567', Body: 'Wednesday also does not work' });
+    expect(getNextReply).toHaveBeenCalled();
+    expect(res.text).toContain('Thursday');
+  });
+
+  it('saves the final message to conversationHistory', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...baseThread, attempts: 6, conversationHistory: [] });
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false
+    });
+    await post({ From: '+15551234567', Body: 'Nothing works' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.conversationHistory).toHaveLength(1);
+    expect(saved.conversationHistory[0].role).toBe('model');
+  });
+});
+
+describe('contact messages during waiting_organizer_initial are recorded', () => {
+  it('saves contact message and holding response to conversationHistory', async () => {
+    const { saveThread } = require('../../lib/kv');
+    saveThread.mockClear();
+    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial', conversationHistory: [] });
+    await post({ From: '+15551234567', Body: 'I prefer mornings' });
+    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    expect(saved.conversationHistory).toHaveLength(2);
+    expect(saved.conversationHistory[0]).toEqual({ role: 'user', content: 'I prefer mornings' });
+    expect(saved.conversationHistory[1].role).toBe('model');
+  });
+
+  it('still sends the holding message TwiML response', async () => {
+    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial', conversationHistory: [] });
+    const res = await post({ From: '+15551234567', Body: 'I prefer mornings' });
+    expect(res.text).toContain('be in touch soon');
+  });
+});
+
+describe('organizer approval decision receives context', () => {
+  it('passes directorAlternatives to getOrganizerApprovalDecision', async () => {
+    const threadWithAlts = {
+      ...baseThread,
+      waitingForOrganizerApproval: true,
+      pendingContactSuggestion: 'Friday at 2pm',
+      pendingContactDatetime: '2026-05-22T14:00:00',
+      directorAlternatives: ['Monday at 3pm', 'Tuesday at 11am']
+    };
+    getThread.mockResolvedValue(threadWithAlts);
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: false,
+      contactMsg: 'Alice suggests Monday at 3pm — does that work?',
+      organizerAck: "Got it, I've forwarded."
+    });
+    await post({ From: '+15550009999', Body: "Friday doesn't work, try Monday at 3pm" });
+    expect(getOrganizerApprovalDecision).toHaveBeenCalledWith(
+      'Alice', 'Bob', 'Friday at 2pm',
+      "Friday doesn't work, try Monday at 3pm",
+      expect.any(Object),
+      expect.objectContaining({ directorAlternatives: ['Monday at 3pm', 'Tuesday at 11am'] })
+    );
   });
 });
 
