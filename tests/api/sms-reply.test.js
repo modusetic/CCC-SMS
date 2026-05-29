@@ -25,8 +25,14 @@ const baseThread = {
 };
 
 jest.mock('../../lib/kv', () => ({
-  getThread: jest.fn(),
-  saveThread: jest.fn().mockResolvedValue(undefined)
+  getThreadById: jest.fn(),
+  saveThreadById: jest.fn().mockResolvedValue(undefined),
+  getPhoneIndex: jest.fn(),
+  addToPhoneIndex: jest.fn().mockResolvedValue(undefined),
+  removeFromPhoneIndex: jest.fn().mockResolvedValue(undefined),
+  getPendingMessage: jest.fn().mockResolvedValue(null),
+  setPendingMessage: jest.fn().mockResolvedValue(undefined),
+  deletePendingMessage: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('../../lib/twilio', () => ({
@@ -52,7 +58,8 @@ jest.mock('../../lib/settings', () => ({
   getSettings: jest.fn()
 }));
 
-const { getThread } = require('../../lib/kv');
+const { getThreadById, saveThreadById, getPhoneIndex, removeFromPhoneIndex,
+        getPendingMessage, setPendingMessage, deletePendingMessage } = require('../../lib/kv');
 const { sendSms } = require('../../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
@@ -61,6 +68,11 @@ const { getSettings } = require('../../lib/settings');
 const app = require('../../api/sms-reply');
 
 const post = (body) => request(app).post('/api/sms-reply').type('form').send(body);
+
+function setupThread(thread) {
+  getPhoneIndex.mockResolvedValue([thread.threadId]);
+  getThreadById.mockResolvedValue({ ...thread });
+}
 
 beforeEach(() => {
   getSettings.mockResolvedValue({
@@ -76,7 +88,7 @@ beforeEach(() => {
 
 describe('contact messages — standard flow', () => {
   it('responds 200 with TwiML', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('How about Wednesday?');
     const res = await post({ From: '+15551234567', Body: 'Monday does not work' });
     expect(res.status).toBe(200);
@@ -84,27 +96,27 @@ describe('contact messages — standard flow', () => {
   });
 
   it('returns polite TwiML when no thread found', async () => {
-    getThread.mockResolvedValue(null);
+    getPhoneIndex.mockResolvedValue([]);
     const res = await post({ From: '+15559999999', Body: 'Hello' });
     expect(res.text).toContain("don't have an active scheduling request");
   });
 
   it('returns Gemini reply in TwiML for conversational response', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('How about Wednesday at 3pm?');
     const res = await post({ From: '+15551234567', Body: 'Monday does not work' });
     expect(res.text).toContain('How about Wednesday at 3pm?');
   });
 
   it('holds contact with polite message when organizer has not yet reviewed', async () => {
-    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial' });
+    setupThread({ ...baseThread, status: 'waiting_organizer_initial' });
     const res = await post({ From: '+15551234567', Body: 'Hello' });
     expect(res.text).toContain("be in touch soon");
     expect(getNextReply).not.toHaveBeenCalled();
   });
 
   it('falls back to defaults when getSettings fails and still responds', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getSettings.mockRejectedValue(new Error('Redis timeout'));
     getNextReply.mockResolvedValue('How about Wednesday?');
     const res = await post({ From: '+15551234567', Body: 'Monday does not work' });
@@ -113,7 +125,7 @@ describe('contact messages — standard flow', () => {
   });
 
   it('does not SMS organizer when demoMode is true', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
@@ -124,14 +136,14 @@ describe('contact messages — standard flow', () => {
   });
 
   it('SMSes organizer with confirmed time when contact confirms directly', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('May 12 at 2:00 PM'));
   });
 
   it('books calendar and emails organizer on confirmed JSON', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-12T14:00:00', 'Bob', 'alice@example.com', 'America/Chicago');
@@ -139,14 +151,14 @@ describe('contact messages — standard flow', () => {
   });
 
   it('returns confirmation TwiML to contact after booking', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     const res = await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(res.text).toContain('confirmed');
   });
 
   it('SMSes organizer and sends holding reply on counter-proposal', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue(JSON.stringify({
       status: 'counter-proposal',
       suggestedTime: 'Friday May 22 at 2pm',
@@ -159,9 +171,8 @@ describe('contact messages — standard flow', () => {
   });
 
   it('records counter-proposal ping in organizerConversationHistory', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...baseThread, organizerConversationHistory: [] });
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread, organizerConversationHistory: [] });
     getNextReply.mockResolvedValue(JSON.stringify({
       status: 'counter-proposal',
       suggestedTime: 'Friday May 22 at 2pm',
@@ -169,10 +180,18 @@ describe('contact messages — standard flow', () => {
       reply: "I'll check with Alice and get back to you!"
     }));
     await post({ From: '+15551234567', Body: 'Can I do Friday at 2pm?' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(1);
     expect(saved.organizerConversationHistory[0].role).toBe('model');
     expect(saved.organizerConversationHistory[0].content).toContain('Friday May 22 at 2pm');
+  });
+
+  it('removes thread from phone index for contact and organizer on confirmation', async () => {
+    setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(removeFromPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid');
+    expect(removeFromPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid');
   });
 });
 
@@ -186,7 +205,7 @@ describe('organizer messages — initial review', () => {
   });
 
   it('calls Gemini with organizer name, contact name, proposed times, and full message', async () => {
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'Approve' });
     expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
       'Alice', 'Bob', expect.any(Array), 'Approve', expect.any(Object)
@@ -194,7 +213,7 @@ describe('organizer messages — initial review', () => {
   });
 
   it('passes the full organizer message to Gemini regardless of content', async () => {
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     await post({ From: '+15550009999', Body: "I can't June 1st but June 5 at 5pm works" });
     expect(getOrganizerInitialContactMessage).toHaveBeenCalledWith(
       'Alice', 'Bob', expect.any(Array), "I can't June 1st but June 5 at 5pm works", expect.any(Object)
@@ -202,7 +221,7 @@ describe('organizer messages — initial review', () => {
   });
 
   it('sends the Gemini-generated message to the contact', async () => {
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'Approve' });
     expect(sendSms).toHaveBeenCalledWith('+15551234567',
       "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday at 10am. Which works for you?"
@@ -210,17 +229,15 @@ describe('organizer messages — initial review', () => {
   });
 
   it('acknowledges the organizer', async () => {
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     const res = await post({ From: '+15550009999', Body: 'Approve' });
     expect(res.text).toContain('Bob');
   });
 
   it('stores organizer initial review message in directorMessages', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'I can only meet June 13 at 5pm' });
-    expect(saveThread).toHaveBeenCalledWith(
-      '+15551234567',
+    expect(saveThreadById.mock.calls[0][1]).toEqual(
       expect.objectContaining({
         directorMessages: expect.arrayContaining(['I can only meet June 13 at 5pm'])
       })
@@ -228,17 +245,15 @@ describe('organizer messages — initial review', () => {
   });
 
   it('sets thread status to pending after initial review', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     await post({ From: '+15550009999', Body: 'Yes' });
-    expect(saveThread).toHaveBeenCalledWith(
-      '+15551234567',
+    expect(saveThreadById.mock.calls[0][1]).toEqual(
       expect.objectContaining({ status: 'pending' })
     );
   });
 
   it('returns polite error TwiML to organizer when Gemini throws during initial review', async () => {
-    getThread.mockResolvedValue({ ...waitingThread });
+    setupThread({ ...waitingThread });
     getOrganizerInitialContactMessage.mockRejectedValue(new Error('Gemini API error'));
     const res = await post({ From: '+15550009999', Body: 'Approve' });
     expect(res.status).toBe(200);
@@ -258,7 +273,7 @@ describe('organizer messages — counter-proposal approval', () => {
   };
 
   it('confirms meeting when Gemini decides the organizer approved', async () => {
-    getThread.mockResolvedValue({ ...pendingThread });
+    setupThread({ ...pendingThread });
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: true,
       contactMsg: "Great news! Your meeting is confirmed for Friday May 22 at 2pm.",
@@ -271,7 +286,7 @@ describe('organizer messages — counter-proposal approval', () => {
   });
 
   it('correctly handles "Would 5pm be OK?" as a non-approval', async () => {
-    getThread.mockResolvedValue({ ...pendingThread });
+    setupThread({ ...pendingThread });
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: false,
       contactMsg: "Alice is free June 5 at 5pm instead — does that work for you?",
@@ -284,7 +299,7 @@ describe('organizer messages — counter-proposal approval', () => {
   });
 
   it('forwards organizer alternative times to contact', async () => {
-    getThread.mockResolvedValue({ ...pendingThread });
+    setupThread({ ...pendingThread });
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: false,
       contactMsg: "Alice suggests Monday at 3pm instead — does that work?",
@@ -297,16 +312,15 @@ describe('organizer messages — counter-proposal approval', () => {
   });
 
   it('saves contactMsg to conversationHistory when organizer rejects counter-proposal', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...pendingThread, conversationHistory: [] });
+    saveThreadById.mockClear();
+    setupThread({ ...pendingThread, conversationHistory: [] });
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: false,
       contactMsg: "Alice suggests Monday at 3pm instead.",
       organizerAck: "Got it! I've forwarded your message to Bob."
     });
     await post({ From: '+15550009999', Body: 'Monday at 3pm instead' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.conversationHistory).toHaveLength(1);
     expect(saved.conversationHistory[0]).toEqual({ role: 'model', content: "Alice suggests Monday at 3pm instead." });
   });
@@ -319,7 +333,7 @@ describe('organizer messages — unsolicited availability update', () => {
   });
 
   it('uses Gemini to craft a message to the contact', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
     expect(getOrganizerUpdateReply).toHaveBeenCalledWith(
       'Alice',
@@ -331,24 +345,22 @@ describe('organizer messages — unsolicited availability update', () => {
   });
 
   it('sends Gemini reply to the contact', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
     expect(sendSms).toHaveBeenCalledWith('+15551234567', "Hi Bob! Alice is now free at 3pm instead. Does that work for you?");
   });
 
   it('acknowledges the organizer by contact name', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     const res = await post({ From: '+15550009999', Body: "Only available Thursday at noon" });
     expect(res.status).toBe(200);
     expect(res.text).toContain('Bob');
   });
 
   it('adds organizer update to directorMessages', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     await post({ From: '+15550009999', Body: 'Try Friday at 4pm instead' });
-    expect(saveThread).toHaveBeenCalledWith(
-      '+15551234567',
+    expect(saveThreadById.mock.calls[0][1]).toEqual(
       expect.objectContaining({
         directorMessages: expect.arrayContaining(['Try Friday at 4pm instead'])
       })
@@ -356,11 +368,10 @@ describe('organizer messages — unsolicited availability update', () => {
   });
 
   it('saves AI reply to conversationHistory when organizer sends unsolicited update', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...baseThread, conversationHistory: [] });
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread, conversationHistory: [] });
     await post({ From: '+15550009999', Body: "I can't May 26 at 2pm but I can at 3pm" });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.conversationHistory).toHaveLength(1);
     expect(saved.conversationHistory[0]).toEqual({
       role: 'model',
@@ -379,8 +390,7 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   };
 
   beforeEach(() => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
+    saveThreadById.mockClear();
     sendSms.mockClear();
     getOrganizerInitialContactMessage.mockResolvedValue(
       "Hey Bob! Alice wants to meet — Monday at 2pm. Which works?"
@@ -394,10 +404,9 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   });
 
   it('pushes organizer reply and system ack to organizerConversationHistory on initial review approval', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...waitingThread, organizerConversationHistory: [] });
+    setupThread({ ...waitingThread, organizerConversationHistory: [] });
     await post({ From: '+15550009999', Body: 'Approve' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(2);
     expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: 'Approve' });
     expect(saved.organizerConversationHistory[1].role).toBe('model');
@@ -405,10 +414,9 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   });
 
   it('pushes organizer reply and system ack to organizerConversationHistory on counter-proposal approval', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...pendingThread, organizerConversationHistory: [] });
+    setupThread({ ...pendingThread, organizerConversationHistory: [] });
     await post({ From: '+15550009999', Body: 'Yes' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(2);
     expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: 'Yes' });
     expect(saved.organizerConversationHistory[1].role).toBe('model');
@@ -416,15 +424,14 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   });
 
   it('pushes organizer reply and system ack to organizerConversationHistory on rejection/alternatives', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...pendingThread, organizerConversationHistory: [] });
+    setupThread({ ...pendingThread, organizerConversationHistory: [] });
     getOrganizerApprovalDecision.mockResolvedValueOnce({
       approved: false,
       contactMsg: "Alice suggests Monday at 3pm instead.",
       organizerAck: "Got it! I've forwarded your message to Bob."
     });
     await post({ From: '+15550009999', Body: 'Monday at 3pm instead' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(2);
     expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: 'Monday at 3pm instead' });
     expect(saved.organizerConversationHistory[1].role).toBe('model');
@@ -432,34 +439,31 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   });
 
   it('pushes organizer reply and system ack to organizerConversationHistory on unsolicited update', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...baseThread, organizerConversationHistory: [] });
+    setupThread({ ...baseThread, organizerConversationHistory: [] });
     await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(2);
     expect(saved.organizerConversationHistory[0]).toEqual({ role: 'user', content: "I can't Monday, try 3pm" });
     expect(saved.organizerConversationHistory[1].role).toBe('model');
   });
 
   it('exercises defensive guard when organizerConversationHistory is undefined', async () => {
-    const { saveThread } = require('../../lib/kv');
     // Thread has no organizerConversationHistory at all (simulates old threads from before schema update)
     const threadWithoutHistory = { ...baseThread, organizerConversationHistory: undefined };
-    getThread.mockResolvedValue(threadWithoutHistory);
+    setupThread(threadWithoutHistory);
     getNextReply.mockResolvedValue('How about Wednesday?');
     // Just make sure it doesn't throw
     const res = await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
     expect(res.status).toBe(200);
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15550009999')[1];
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.organizerConversationHistory).toHaveLength(2);
   });
 
-  it('saves updated organizerConversationHistory under the contact phone key too', async () => {
-    const { saveThread } = require('../../lib/kv');
-    getThread.mockResolvedValue({ ...baseThread, organizerConversationHistory: [] });
+  it('saves updated organizerConversationHistory in thread', async () => {
+    setupThread({ ...baseThread, organizerConversationHistory: [] });
     await post({ From: '+15550009999', Body: "I can't Monday, try 3pm" });
-    const contactSaved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
-    expect(contactSaved.organizerConversationHistory).toHaveLength(2);
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
+    expect(saved.organizerConversationHistory).toHaveLength(2);
   });
 });
 
@@ -472,7 +476,7 @@ describe('contact texts while waiting for organizer approval (counter-proposal h
   };
 
   it('returns a hold message without calling Gemini', async () => {
-    getThread.mockResolvedValue({ ...pendingApprovalThread });
+    setupThread({ ...pendingApprovalThread });
     const res = await post({ From: '+15551234567', Body: 'Any update?' });
     expect(res.status).toBe(200);
     expect(getNextReply).not.toHaveBeenCalled();
@@ -480,17 +484,16 @@ describe('contact texts while waiting for organizer approval (counter-proposal h
   });
 
   it('does not increment attempts or modify thread', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...pendingApprovalThread });
+    saveThreadById.mockClear();
+    setupThread({ ...pendingApprovalThread });
     await post({ From: '+15551234567', Body: 'Any update?' });
-    expect(saveThread).not.toHaveBeenCalled();
+    expect(saveThreadById).not.toHaveBeenCalled();
   });
 });
 
 describe('maxExchanges hard stop', () => {
   it('sends final give-up message when attempts reaches maxExchanges', async () => {
-    getThread.mockResolvedValue({ ...baseThread, attempts: 6 });
+    setupThread({ ...baseThread, attempts: 6 });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false
@@ -502,7 +505,7 @@ describe('maxExchanges hard stop', () => {
   });
 
   it('does not send final message when attempts is one below maxExchanges', async () => {
-    getThread.mockResolvedValue({ ...baseThread, attempts: 5 });
+    setupThread({ ...baseThread, attempts: 5 });
     getNextReply.mockResolvedValue('How about Thursday?');
     const res = await post({ From: '+15551234567', Body: 'Wednesday also does not work' });
     expect(getNextReply).toHaveBeenCalled();
@@ -510,15 +513,14 @@ describe('maxExchanges hard stop', () => {
   });
 
   it('saves the final message to conversationHistory', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...baseThread, attempts: 6, conversationHistory: [] });
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread, attempts: 6, conversationHistory: [] });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false
     });
     await post({ From: '+15551234567', Body: 'Nothing works' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.conversationHistory).toHaveLength(1);
     expect(saved.conversationHistory[0].role).toBe('model');
   });
@@ -526,18 +528,17 @@ describe('maxExchanges hard stop', () => {
 
 describe('contact messages during waiting_organizer_initial are recorded', () => {
   it('saves contact message and holding response to conversationHistory', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial', conversationHistory: [] });
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread, status: 'waiting_organizer_initial', conversationHistory: [] });
     await post({ From: '+15551234567', Body: 'I prefer mornings' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.conversationHistory).toHaveLength(2);
     expect(saved.conversationHistory[0]).toEqual({ role: 'user', content: 'I prefer mornings' });
     expect(saved.conversationHistory[1].role).toBe('model');
   });
 
   it('still sends the holding message TwiML response', async () => {
-    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial', conversationHistory: [] });
+    setupThread({ ...baseThread, status: 'waiting_organizer_initial', conversationHistory: [] });
     const res = await post({ From: '+15551234567', Body: 'I prefer mornings' });
     expect(res.text).toContain('be in touch soon');
   });
@@ -552,7 +553,7 @@ describe('organizer approval decision receives context', () => {
       pendingContactDatetime: '2026-05-22T14:00:00',
       directorAlternatives: ['Monday at 3pm', 'Tuesday at 11am']
     };
-    getThread.mockResolvedValue(threadWithAlts);
+    setupThread(threadWithAlts);
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: false,
       contactMsg: 'Alice suggests Monday at 3pm — does that work?',
@@ -570,38 +571,35 @@ describe('organizer approval decision receives context', () => {
 
 describe('confirmedDatetime and rejectedTimes tracking', () => {
   it('sets confirmedDatetime on thread when contact directly confirms', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...baseThread });
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.confirmedDatetime).toBe('2026-05-12T14:00:00');
   });
 
   it('sets confirmedDatetime when organizer approves counter-proposal', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
+    saveThreadById.mockClear();
     const pendingThread = {
       ...baseThread,
       waitingForOrganizerApproval: true,
       pendingContactSuggestion: 'Friday May 22 at 2pm',
       pendingContactDatetime: '2026-05-22T14:00:00'
     };
-    getThread.mockResolvedValue(pendingThread);
+    setupThread(pendingThread);
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: true,
       contactMsg: 'Meeting confirmed for Friday May 22 at 2pm!',
       organizerAck: "Confirmed! I've let Bob know."
     });
     await post({ From: '+15550009999', Body: 'Yes that works' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.confirmedDatetime).toBe('2026-05-22T14:00:00');
   });
 
   it('adds pendingContactSuggestion to rejectedTimes when organizer rejects', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
+    saveThreadById.mockClear();
     const pendingThread = {
       ...baseThread,
       waitingForOrganizerApproval: true,
@@ -609,24 +607,23 @@ describe('confirmedDatetime and rejectedTimes tracking', () => {
       pendingContactDatetime: '2026-05-22T14:00:00',
       rejectedTimes: []
     };
-    getThread.mockResolvedValue(pendingThread);
+    setupThread(pendingThread);
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: false,
       contactMsg: 'Alice suggests Monday at 3pm instead.',
       organizerAck: "Got it, forwarding."
     });
     await post({ From: '+15550009999', Body: 'Not Friday, try Monday at 3pm' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.rejectedTimes).toContain('Friday May 22 at 2pm');
   });
 
   it('updates lastActivityAt on saveBoth', async () => {
-    const { saveThread } = require('../../lib/kv');
-    saveThread.mockClear();
-    getThread.mockResolvedValue({ ...baseThread });
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('How about Wednesday?');
     await post({ From: '+15551234567', Body: 'Monday does not work' });
-    const saved = saveThread.mock.calls.find(c => c[0] === '+15551234567')[1];
+    const saved = saveThreadById.mock.calls[0][1];
     expect(saved.lastActivityAt).toBeDefined();
     expect(saved.lastActivityAt).not.toBe('2026-05-07T10:00:00.000Z');
   });
@@ -634,7 +631,7 @@ describe('confirmedDatetime and rejectedTimes tracking', () => {
 
 describe('SMS template substitution', () => {
   it('substitutes {organizerName} in confirmationMessage', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch soon.",
@@ -646,7 +643,7 @@ describe('SMS template substitution', () => {
   });
 
   it('substitutes {confirmedDatetime} in confirmationMessage with human-readable time', async () => {
-    getThread.mockResolvedValue({ ...baseThread });
+    setupThread({ ...baseThread });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch soon.",
@@ -659,7 +656,7 @@ describe('SMS template substitution', () => {
   });
 
   it('substitutes {contactName} and {organizerName} in holdingMessage', async () => {
-    getThread.mockResolvedValue({ ...baseThread, status: 'waiting_organizer_initial' });
+    setupThread({ ...baseThread, status: 'waiting_organizer_initial' });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: 'Hi {contactName}, {organizerName} will be in touch!',

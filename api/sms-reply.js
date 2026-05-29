@@ -1,5 +1,9 @@
 const express = require('express');
-const { getThread, saveThread } = require('../lib/kv');
+const {
+  getThreadById, saveThreadById,
+  getPhoneIndex, removeFromPhoneIndex,
+  getPendingMessage, setPendingMessage, deletePendingMessage
+} = require('../lib/kv');
 const { sendSms } = require('../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
@@ -68,9 +72,11 @@ function pushOrganizerHistory(thread, userMsg, ackMsg) {
 
 async function saveBoth(thread) {
   thread.lastActivityAt = new Date().toISOString();
-  const saves = [saveThread(thread.contactPhone, thread)];
-  if (thread.organizerPhone) saves.push(saveThread(thread.organizerPhone, thread));
-  await Promise.all(saves);
+  await saveThreadById(thread.threadId, thread);
+  if (thread.status === 'confirmed') {
+    await removeFromPhoneIndex(thread.contactPhone, thread.threadId);
+    if (thread.organizerPhone) await removeFromPhoneIndex(thread.organizerPhone, thread.threadId);
+  }
 }
 
 // Return the last model message from conversationHistory, or null.
@@ -79,22 +85,40 @@ function lastModelMsg(thread) {
   return msgs.length > 0 ? msgs[msgs.length - 1].content : null;
 }
 
+async function loadActiveThreadsForPhone(phone) {
+  const ids = await getPhoneIndex(phone);
+  if (ids.length === 0) return [];
+  const results = await Promise.all(ids.map(id => getThreadById(id)));
+  const expiredIds = ids.filter((_, i) => results[i] === null);
+  if (expiredIds.length > 0) {
+    await Promise.all(expiredIds.map(id => removeFromPhoneIndex(phone, id)));
+  }
+  return results.filter(t => t !== null && t.status !== 'confirmed');
+}
+
+async function handleOrganizerRouting(organizerPhone, incomingMessage, res, settings, orgThreads) {
+  // Task 5 will replace this with disambiguation logic.
+  // For now, just pick the first thread and delegate.
+  return handleOrganizerReply(orgThreads[0], incomingMessage, res, settings);
+}
+
 app.post('/api/sms-reply', async (req, res) => {
   res.set('Content-Type', 'text/xml');
 
   const from = req.body.From;
   const incomingMessage = req.body.Body;
 
-  let thread;
+  let activeThreads;
   try {
-    thread = await getThread(from);
+    activeThreads = await loadActiveThreadsForPhone(from);
   } catch (err) {
-    console.error('[sms-reply] getThread error:', err.message);
+    console.error('[sms-reply] loadActiveThreadsForPhone error:', err.message);
     return res.send('<Response></Response>');
   }
 
-  if (!thread) {
-    console.log(`[sms-reply] no thread for ${from}`);
+  if (activeThreads.length === 0) {
+    console.log(`[sms-reply] no active threads for ${from}`);
+    await deletePendingMessage(from).catch(() => {});
     return res.send(twimlReply("Sorry, I don't have an active scheduling request for this number."));
   }
 
@@ -106,17 +130,25 @@ app.post('/api/sms-reply', async (req, res) => {
     settings = { ...DEFAULTS };
   }
 
-  const role = thread.organizerPhone && from === thread.organizerPhone ? 'organizer' : 'contact';
-  console.log(`[sms-reply] from=${from} role=${role} status=${thread.status} waitingApproval=${thread.waitingForOrganizerApproval} msg="${incomingMessage}"`);
+  const isOrganizer = activeThreads.some(t => t.organizerPhone === from);
+
+  if (isOrganizer) {
+    const orgThreads = activeThreads.filter(t => t.organizerPhone === from);
+    console.log(`[sms-reply] from=${from} role=organizer activeOrgThreads=${orgThreads.length} msg="${incomingMessage}"`);
+    return handleOrganizerRouting(from, incomingMessage, res, settings, orgThreads);
+  }
+
+  const thread = activeThreads.sort(
+    (a, b) => new Date(b.lastActivityAt || b.createdAt) - new Date(a.lastActivityAt || a.createdAt)
+  )[0];
+
+  console.log(`[sms-reply] from=${from} role=contact status=${thread.status} waitingApproval=${thread.waitingForOrganizerApproval} msg="${incomingMessage}"`);
 
   if (thread.status === 'confirmed') {
     console.log('[sms-reply] thread already confirmed, ignoring');
     return res.send('<Response></Response>');
   }
 
-  if (thread.organizerPhone && from === thread.organizerPhone) {
-    return handleOrganizerReply(thread, incomingMessage, res, settings);
-  }
   return handleContactReply(thread, incomingMessage, res, settings);
 });
 
