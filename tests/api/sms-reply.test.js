@@ -135,23 +135,40 @@ describe('contact messages — standard flow', () => {
     expect(sendSms).not.toHaveBeenCalled();
   });
 
-  it('SMSes organizer with confirmed time when contact confirms directly', async () => {
+  it('sends organizer a final-confirmation request when contact agrees to a time', async () => {
     setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('May 12 at 2:00 PM'));
+    expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringMatching(/Reply YES/i));
   });
 
-  it('books calendar and emails organizer on confirmed JSON', async () => {
-    setupThread({ ...baseThread });
+  it('books calendar and emails organizer on confirmed JSON when no organizer phone', async () => {
+    setupThread({ ...baseThread, organizerPhone: null });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(bookCalendarEvent).toHaveBeenCalledWith('2026-05-12T14:00:00', 'Bob', 'alice@example.com', 'America/Chicago');
     expect(sendOrganizerEmail).toHaveBeenCalledWith('alice@example.com', 'Alice', 'Bob', '2026-05-12T14:00:00', 'America/Chicago');
   });
 
-  it('returns confirmation TwiML to contact after booking', async () => {
+  it('does not book calendar or email organizer when contact confirms and organizer approval is pending', async () => {
     setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(bookCalendarEvent).not.toHaveBeenCalled();
+    expect(sendOrganizerEmail).not.toHaveBeenCalled();
+  });
+
+  it('returns hold TwiML to contact (not confirmation) when organizer phone exists', async () => {
+    setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    const res = await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(res.text).not.toContain('confirmed');
+    expect(res.text).toContain('Alice');
+  });
+
+  it('returns confirmation TwiML to contact when no organizer phone', async () => {
+    setupThread({ ...baseThread, organizerPhone: null });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     const res = await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(res.text).toContain('confirmed');
@@ -184,7 +201,7 @@ describe('contact messages — standard flow', () => {
     );
   });
 
-  it('confirmation SMS to organizer includes contact name prelude', async () => {
+  it('organizer final-confirmation request includes contact name prelude', async () => {
     setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday works!' });
@@ -209,12 +226,18 @@ describe('contact messages — standard flow', () => {
     expect(saved.organizerConversationHistory[0].content).toContain('Friday May 22 at 2pm');
   });
 
-  it('removes thread from phone index for contact and organizer on confirmation', async () => {
+  it('does not remove thread from phone index when contact agrees (organizer approval still pending)', async () => {
     setupThread({ ...baseThread });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    expect(removeFromPhoneIndex).not.toHaveBeenCalled();
+  });
+
+  it('removes thread from phone index when organizer confirms (no organizer phone path)', async () => {
+    setupThread({ ...baseThread, organizerPhone: null });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     expect(removeFromPhoneIndex).toHaveBeenCalledWith('+15551234567', 'test-uuid');
-    expect(removeFromPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid');
   });
 });
 
@@ -593,9 +616,19 @@ describe('organizer approval decision receives context', () => {
 });
 
 describe('confirmedDatetime and rejectedTimes tracking', () => {
-  it('sets confirmedDatetime on thread when contact directly confirms', async () => {
+  it('sets pendingContactDatetime (not confirmedDatetime) when contact agrees and organizer must confirm', async () => {
     saveThreadById.mockClear();
     setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    const saved = saveThreadById.mock.calls[0][1];
+    expect(saved.pendingContactDatetime).toBe('2026-05-12T14:00:00');
+    expect(saved.confirmedDatetime).toBeNull();
+  });
+
+  it('sets confirmedDatetime when contact confirms and no organizer phone (auto-confirm)', async () => {
+    saveThreadById.mockClear();
+    setupThread({ ...baseThread, organizerPhone: null });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
     const saved = saveThreadById.mock.calls[0][1];
@@ -789,8 +822,8 @@ describe('organizer multi-thread routing', () => {
 });
 
 describe('SMS template substitution', () => {
-  it('substitutes {organizerName} in confirmationMessage', async () => {
-    setupThread({ ...baseThread });
+  it('substitutes {organizerName} in confirmationMessage when no organizer phone', async () => {
+    setupThread({ ...baseThread, organizerPhone: null });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch soon.",
@@ -801,8 +834,8 @@ describe('SMS template substitution', () => {
     expect(res.text).toContain('Alice'); // {organizerName} replaced with thread.organizerName
   });
 
-  it('substitutes {confirmedDatetime} in confirmationMessage with human-readable time', async () => {
-    setupThread({ ...baseThread });
+  it('substitutes {confirmedDatetime} in confirmationMessage with human-readable time when no organizer phone', async () => {
+    setupThread({ ...baseThread, organizerPhone: null });
     getSettings.mockResolvedValue({
       assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
       holdingMessage: "We'll be in touch soon.",

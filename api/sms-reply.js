@@ -265,10 +265,35 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
     console.log(`[sms-reply] parsed action: ${parsed?.status ?? 'conversational'}`);
 
     if (parsed?.status === 'confirmed' && parsed?.datetime) {
-      thread.status = 'confirmed';
-      thread.confirmedDatetime = parsed.datetime;
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
+
+      if (thread.organizerPhone) {
+        // Always require explicit organizer sign-off before finalizing, regardless of
+        // how availability was communicated (specific times or an open window).
+        thread.waitingForOrganizerApproval = true;
+        thread.pendingContactSuggestion = formatConfirmedTime(parsed.datetime);
+        thread.pendingContactDatetime = parsed.datetime;
+
+        const holdMsg = truncate(
+          `Just confirming with ${thread.organizerName} — I'll let you know shortly!`,
+          settings.maxMessageLength
+        );
+        thread.conversationHistory.push({ role: 'model', content: holdMsg });
+
+        const orgMsg = orgPrelude(thread.contactName, `agreed: ${formatConfirmedTime(parsed.datetime)}`) +
+          `${thread.contactName} agreed to ${formatConfirmedTime(parsed.datetime)}. Reply YES to confirm or suggest an alternative.`;
+        thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+        thread.organizerConversationHistory.push({ role: 'model', content: orgMsg });
+        await saveBoth(thread);
+        await demoSendSms(thread.organizerPhone, truncate(orgMsg, settings.maxMessageLength), settings.demoMode);
+        console.log(`[sms-reply] contact agreed — awaiting organizer final confirm for thread ${thread.threadId}`);
+        return res.send(twimlReply(holdMsg));
+      }
+
+      // No organizer phone — confirm immediately
+      thread.status = 'confirmed';
+      thread.confirmedDatetime = parsed.datetime;
 
       try {
         await bookCalendarEvent(parsed.datetime, thread.contactName, thread.organizerEmail, thread.timezone);
@@ -287,13 +312,6 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       );
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
       await saveBoth(thread);
-
-      if (thread.organizerPhone) {
-        const orgConfirmMsg = orgPrelude(thread.contactName, `confirmed: ${formatConfirmedTime(parsed.datetime)}`) +
-          `Meeting confirmed for ${formatConfirmedTime(parsed.datetime)}.`;
-        await demoSendSms(thread.organizerPhone, truncate(orgConfirmMsg, settings.maxMessageLength), settings.demoMode);
-      }
-
       return res.send(twimlReply(confirmMsg));
 
     } else if (parsed?.status === 'counter-proposal' && parsed?.suggestedTime) {
