@@ -82,12 +82,12 @@ describe('POST /api/initiate — organizer phone, no backup times', () => {
     expect(addToPhoneIndex).toHaveBeenCalledWith('+15550009999', 'test-uuid-1234');
   });
 
-  it('organizer initial review SMS includes contact name prelude', async () => {
+  it('organizer initial review SMS does not include prelude', async () => {
     const body = { ...base, organizerPhone: '+15550009999' };
     await request(app).post('/api/initiate').send(body);
-    expect(sendSms).toHaveBeenCalledWith('+15550009999',
-      expect.stringMatching(/^\[Bob/)
-    );
+    const orgCall = sendSms.mock.calls.find(([to]) => to === '+15550009999');
+    expect(orgCall[1]).toContain('Bob');
+    expect(orgCall[1]).not.toMatch(/^\[/);
   });
 });
 
@@ -108,12 +108,12 @@ describe('POST /api/initiate — organizer phone + backup times', () => {
     expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('Bob'));
   });
 
-  it('organizer FYI SMS includes contact name prelude', async () => {
+  it('organizer FYI SMS does not include prelude', async () => {
     const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wed at 3pm'] };
     await request(app).post('/api/initiate').send(body);
-    expect(sendSms).toHaveBeenCalledWith('+15550009999',
-      expect.stringMatching(/^\[Bob/)
-    );
+    const orgCall = sendSms.mock.calls.find(([to]) => to === '+15550009999');
+    expect(orgCall[1]).toContain('Bob');
+    expect(orgCall[1]).not.toMatch(/^\[/);
   });
 
   it('saves thread with status pending', async () => {

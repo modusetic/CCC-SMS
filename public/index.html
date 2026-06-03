@@ -1205,6 +1205,15 @@
     const proposedTimes  = collectSlots('timesList');
     const backupSlots    = collectSlots('backupTimesList');
 
+    if (new Set(proposedTimes).size < proposedTimes.length) {
+      showToast('Proposed times contain duplicates — please remove them before submitting.', 'error');
+      return;
+    }
+    if (backupSlots.length > 0 && new Set(backupSlots).size < backupSlots.length) {
+      showToast('Backup times contain duplicates — please remove them before submitting.', 'error');
+      return;
+    }
+
     const contactPhone   = getPhone('contactCountry',  'contactPhone');
     const organizerPhone = getPhone('organizerCountry', 'organizerPhone');
     const timezone       = document.getElementById('timezone').value;
