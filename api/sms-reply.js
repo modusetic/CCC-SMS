@@ -370,7 +370,7 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
   if (!thread.waitingForOrganizerApproval) {
     try {
       thread.directorMessages = [...(thread.directorMessages || []), incomingMessage];
-      const aiMsg = await getOrganizerUpdateReply(
+      const { contactMessage, exactApprovedTime } = await getOrganizerUpdateReply(
         thread.organizerName, thread.contactName, incomingMessage, settings,
         {
           offeredTimes: thread.offeredTimes || [],
@@ -379,8 +379,9 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
           lastContactMsg: lastModelMsg(thread)
         }
       );
-      const smsSafe = truncate(aiMsg, settings.maxMessageLength);
+      const smsSafe = truncate(contactMessage, settings.maxMessageLength);
       const ackMsg = `Got it! I've let ${thread.contactName} know about your updated availability.`;
+      thread.organizerPreApprovedTime = exactApprovedTime;
       thread.conversationHistory.push({ role: 'model', content: smsSafe });
       pushOrganizerHistory(thread, incomingMessage, ackMsg);
       await saveBoth(thread);
@@ -457,17 +458,18 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
 
 async function handleOrganizerInitialReview(thread, incomingMessage, res, settings) {
   try {
-    const aiMsg = await getOrganizerInitialContactMessage(
+    const { contactMessage, exactApprovedTime } = await getOrganizerInitialContactMessage(
       thread.organizerName, thread.contactName,
       thread.proposedTimes, incomingMessage, settings
     );
-    const smsBody = truncate(aiMsg, settings.maxMessageLength);
+    const smsBody = truncate(contactMessage, settings.maxMessageLength);
 
     const reply = `Got it! I've reached out to ${thread.contactName} with your availability.`;
 
     thread.status = 'pending';
     thread.directorMessages = [...(thread.directorMessages || []), incomingMessage];
     thread.offeredTimes = thread.proposedTimes || [];
+    thread.organizerPreApprovedTime = exactApprovedTime;
     thread.conversationHistory.push({ role: 'model', content: smsBody });
     pushOrganizerHistory(thread, incomingMessage, reply);
     await saveBoth(thread);

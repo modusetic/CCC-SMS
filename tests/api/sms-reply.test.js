@@ -315,9 +315,10 @@ describe('organizer messages — initial review', () => {
   const waitingThread = { ...baseThread, status: 'waiting_organizer_initial' };
 
   beforeEach(() => {
-    getOrganizerInitialContactMessage.mockResolvedValue(
-      "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday at 10am. Which works for you?"
-    );
+    getOrganizerInitialContactMessage.mockResolvedValue({
+      contactMessage: "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday at 10am. Which works for you?",
+      exactApprovedTime: null
+    });
   });
 
   it('calls Gemini with organizer name, contact name, proposed times, and full message', async () => {
@@ -365,6 +366,18 @@ describe('organizer messages — initial review', () => {
     await post({ From: '+15550009999', Body: 'Yes' });
     expect(saveThreadById.mock.calls[0][1]).toEqual(
       expect.objectContaining({ status: 'pending' })
+    );
+  });
+
+  it('sets organizerPreApprovedTime from the exactApprovedTime Gemini returns', async () => {
+    setupThread({ ...waitingThread });
+    getOrganizerInitialContactMessage.mockResolvedValue({
+      contactMessage: "Hi Bob! 4:30 PM works for Alice — does that work for you too?",
+      exactApprovedTime: '4:30 PM'
+    });
+    await post({ From: '+15550009999', Body: 'Yes, 4:30 works' });
+    expect(saveThreadById.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ organizerPreApprovedTime: '4:30 PM' })
     );
   });
 
@@ -445,7 +458,10 @@ describe('organizer messages — counter-proposal approval', () => {
 
 describe('organizer messages — unsolicited availability update', () => {
   beforeEach(() => {
-    getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is now free at 3pm instead. Does that work for you?");
+    getOrganizerUpdateReply.mockResolvedValue({
+      contactMessage: "Hi Bob! Alice is now free at 3pm instead. Does that work for you?",
+      exactApprovedTime: null
+    });
   });
 
   it('uses Gemini to craft a message to the contact', async () => {
@@ -483,6 +499,30 @@ describe('organizer messages — unsolicited availability update', () => {
     );
   });
 
+  it('sets organizerPreApprovedTime from the exactApprovedTime Gemini returns', async () => {
+    setupThread({ ...baseThread });
+    getOrganizerUpdateReply.mockResolvedValue({
+      contactMessage: "Hi Bob! Alice is now free at 3pm instead. Does that work for you?",
+      exactApprovedTime: '3pm'
+    });
+    await post({ From: '+15550009999', Body: "I can only do 3pm now" });
+    expect(saveThreadById.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ organizerPreApprovedTime: '3pm' })
+    );
+  });
+
+  it('clears organizerPreApprovedTime to null when the update is vague', async () => {
+    setupThread({ ...baseThread, organizerPreApprovedTime: '2pm' });
+    getOrganizerUpdateReply.mockResolvedValue({
+      contactMessage: "Hi Bob! Alice has some new availability.",
+      exactApprovedTime: null
+    });
+    await post({ From: '+15550009999', Body: "I'm generally free most afternoons" });
+    expect(saveThreadById.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ organizerPreApprovedTime: null })
+    );
+  });
+
   it('saves AI reply to conversationHistory when organizer sends unsolicited update', async () => {
     saveThreadById.mockClear();
     setupThread({ ...baseThread, conversationHistory: [] });
@@ -508,15 +548,19 @@ describe('organizer messages — organizerConversationHistory tracking', () => {
   beforeEach(() => {
     saveThreadById.mockClear();
     sendSms.mockClear();
-    getOrganizerInitialContactMessage.mockResolvedValue(
-      "Hey Bob! Alice wants to meet — Monday at 2pm. Which works?"
-    );
+    getOrganizerInitialContactMessage.mockResolvedValue({
+      contactMessage: "Hey Bob! Alice wants to meet — Monday at 2pm. Which works?",
+      exactApprovedTime: null
+    });
     getOrganizerApprovalDecision.mockResolvedValue({
       approved: true,
       contactMsg: "Great news! Your meeting is confirmed.",
       organizerAck: "Confirmed! I've let Bob know."
     });
-    getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is free at 3pm instead.");
+    getOrganizerUpdateReply.mockResolvedValue({
+      contactMessage: "Hi Bob! Alice is free at 3pm instead.",
+      exactApprovedTime: null
+    });
   });
 
   it('pushes organizer reply and system ack to organizerConversationHistory on initial review approval', async () => {
@@ -780,7 +824,10 @@ describe('organizer multi-thread routing', () => {
       contactMsg: 'Meeting confirmed!',
       organizerAck: "Confirmed! I've let Bob know."
     });
-    getOrganizerInitialContactMessage.mockResolvedValue('Hi Jane! Alice can do Mon Jun 2 or Tue Jun 3 — which works?');
+    getOrganizerInitialContactMessage.mockResolvedValue({
+      contactMessage: 'Hi Jane! Alice can do Mon Jun 2 or Tue Jun 3 — which works?',
+      exactApprovedTime: null
+    });
   });
 
   it('auto-routes to the single waiting thread without disambiguation', async () => {
@@ -834,7 +881,7 @@ describe('organizer multi-thread routing', () => {
     getThreadById
       .mockResolvedValueOnce(pendingThread)
       .mockResolvedValueOnce(pendingThread2);
-    getOrganizerUpdateReply.mockResolvedValue("Hi! Alice updated availability.");
+    getOrganizerUpdateReply.mockResolvedValue({ contactMessage: "Hi! Alice updated availability.", exactApprovedTime: null });
     const res = await post({ From: '+15550009999', Body: "I'm free Thursday instead" });
     expect(setPendingMessage).toHaveBeenCalledWith('+15550009999', "I'm free Thursday instead");
     expect(res.text).toContain('Bob Smith');
@@ -844,7 +891,7 @@ describe('organizer multi-thread routing', () => {
   it('auto-routes unsolicited update when only one active thread exists', async () => {
     getPhoneIndex.mockResolvedValue(['uuid-1']);
     getThreadById.mockResolvedValue({ ...baseThread, threadId: 'uuid-1' });
-    getOrganizerUpdateReply.mockResolvedValue("Hi Bob! Alice is free Thursday instead.");
+    getOrganizerUpdateReply.mockResolvedValue({ contactMessage: "Hi Bob! Alice is free Thursday instead.", exactApprovedTime: null });
     await post({ From: '+15550009999', Body: "I'm free Thursday instead" });
     expect(getOrganizerUpdateReply).toHaveBeenCalled();
     expect(setPendingMessage).not.toHaveBeenCalled();
