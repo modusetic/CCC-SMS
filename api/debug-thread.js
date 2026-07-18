@@ -1,15 +1,14 @@
 const express = require('express');
 const { getPhoneIndex, getThreadById } = require('../lib/kv');
+const { requireAdminToken } = require('../lib/auth');
 
 const app = express();
 app.use(express.json());
 
 app.get('/api/debug-thread', async (req, res) => {
-  // Gate on DEBUG_TOKEN when set — prevents unauthenticated PII exposure in production.
-  // Set DEBUG_TOKEN env var to a shared secret; pass it as ?token=<secret> in the URL.
-  if (process.env.DEBUG_TOKEN && req.query.token !== process.env.DEBUG_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  // Fail-closed: DEBUG_TOKEN must be set AND match (see lib/auth.js) — an unset
+  // env var denies access rather than leaving this PII endpoint wide open.
+  if (!requireAdminToken(req, res)) return;
 
   const raw = req.query.phone || '';
   // Express/qs decodes '+' as a space in query strings.

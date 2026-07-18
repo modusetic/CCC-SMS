@@ -4,11 +4,12 @@ const {
   getPhoneIndex, removeFromPhoneIndex,
   getPendingMessage, setPendingMessage, deletePendingMessage
 } = require('../lib/kv');
-const { sendSms } = require('../lib/twilio');
+const { sendSms, isValidTwilioRequest } = require('../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../lib/gemini');
 const { bookCalendarEvent } = require('../lib/calendar');
 const { sendOrganizerEmail } = require('../lib/email');
 const { getSettings, DEFAULTS } = require('../lib/settings');
+const { checkAdminToken } = require('../lib/auth');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -171,6 +172,23 @@ async function handleOrganizerRouting(organizerPhone, incomingMessage, res, sett
 app.post('/api/sms-reply', async (req, res) => {
   res.set('Content-Type', 'text/xml');
 
+  let settings;
+  try {
+    settings = await getSettings();
+  } catch (err) {
+    console.error('[sms-reply] getSettings error (using defaults):', err.message);
+    settings = { ...DEFAULTS };
+  }
+
+  // Require a genuine Twilio signature on every request. The one exception is the
+  // frontend's demo-mode reply simulator, which posts to this same route — it's only
+  // allowed through when demoMode is explicitly enabled AND the caller presents the
+  // operator's admin token, so a stranger who finds this URL can't spoof From/Body.
+  if (!isValidTwilioRequest(req) && !(settings.demoMode && checkAdminToken(req, { allowQuery: false }))) {
+    console.warn('[sms-reply] rejected request with invalid Twilio signature');
+    return res.send('<Response></Response>');
+  }
+
   const from = req.body.From;
   const incomingMessage = req.body.Body;
 
@@ -186,14 +204,6 @@ app.post('/api/sms-reply', async (req, res) => {
     console.log(`[sms-reply] no active threads for ${from}`);
     await deletePendingMessage(from).catch(() => {});
     return res.send(twimlReply("Sorry, I don't have an active scheduling request for this number."));
-  }
-
-  let settings;
-  try {
-    settings = await getSettings();
-  } catch (err) {
-    console.error('[sms-reply] getSettings error (using defaults):', err.message);
-    settings = { ...DEFAULTS };
   }
 
   const isOrganizer = activeThreads.some(t => t.organizerPhone === from);

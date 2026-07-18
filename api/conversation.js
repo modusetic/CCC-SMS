@@ -1,10 +1,13 @@
 const express = require('express');
 const { getThreadById, getPhoneIndex } = require('../lib/kv');
+const { requireAdminToken } = require('../lib/auth');
 
 const app = express();
 app.use(express.json());
 
 app.get('/api/conversation', async (req, res) => {
+  if (!requireAdminToken(req, res, { allowQuery: false })) return;
+
   const threadId = req.query.threadId;
   const raw = req.query.phone || '';
   const phone = raw.startsWith(' ') ? '+' + raw.slice(1).trim() : raw.trim();

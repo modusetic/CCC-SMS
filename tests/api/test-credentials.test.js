@@ -45,9 +45,9 @@ describe('GET /api/test-credentials', () => {
     expect(res.status).not.toBe(401);
   });
 
-  it('allows unauthenticated access when DEBUG_TOKEN is not set', async () => {
+  it('returns 401 when DEBUG_TOKEN env var is unset, even with a token provided (fail closed)', async () => {
     delete process.env.DEBUG_TOKEN;
-    const res = await request(app).get('/api/test-credentials');
-    expect(res.status).not.toBe(401);
+    const res = await request(app).get('/api/test-credentials?token=secret123');
+    expect(res.status).toBe(401);
   });
 });

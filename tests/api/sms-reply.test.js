@@ -36,7 +36,8 @@ jest.mock('../../lib/kv', () => ({
 }));
 
 jest.mock('../../lib/twilio', () => ({
-  sendSms: jest.fn().mockResolvedValue('SM123')
+  sendSms: jest.fn().mockResolvedValue('SM123'),
+  isValidTwilioRequest: jest.fn()
 }));
 
 jest.mock('../../lib/gemini', () => ({
@@ -60,7 +61,7 @@ jest.mock('../../lib/settings', () => ({
 
 const { getThreadById, saveThreadById, getPhoneIndex, removeFromPhoneIndex,
         getPendingMessage, setPendingMessage, deletePendingMessage } = require('../../lib/kv');
-const { sendSms } = require('../../lib/twilio');
+const { sendSms, isValidTwilioRequest } = require('../../lib/twilio');
 const { getNextReply, getOrganizerInitialContactMessage, getOrganizerApprovalDecision, getOrganizerUpdateReply } = require('../../lib/gemini');
 const { bookCalendarEvent } = require('../../lib/calendar');
 const { sendOrganizerEmail } = require('../../lib/email');
@@ -83,6 +84,75 @@ beforeEach(() => {
     holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
     confirmationMessage: "Your meeting with {organizerName} is confirmed for {confirmedDatetime}! You'll receive details soon.",
     demoMode: false
+  });
+  // Default to a genuine Twilio request so existing tests exercise business logic,
+  // not the auth gate — see the dedicated 'Twilio signature verification' describe below.
+  isValidTwilioRequest.mockReturnValue(true);
+});
+
+describe('Twilio signature verification', () => {
+  it('rejects the request when the Twilio signature is invalid and demo mode is off', async () => {
+    isValidTwilioRequest.mockReturnValue(false);
+    setupThread({ ...baseThread });
+    const res = await post({ From: '+15551234567', Body: 'Monday works!' });
+    expect(res.text).toBe('<Response></Response>');
+    expect(getPhoneIndex).not.toHaveBeenCalled();
+  });
+
+  it('rejects the request when the signature is invalid and demo mode is on but no admin token is provided', async () => {
+    isValidTwilioRequest.mockReturnValue(false);
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
+    });
+    setupThread({ ...baseThread });
+    const res = await post({ From: '+15551234567', Body: 'Monday works!' });
+    expect(res.text).toBe('<Response></Response>');
+    expect(getPhoneIndex).not.toHaveBeenCalled();
+  });
+
+  it('rejects the request when the signature is invalid and demo mode is on with a wrong admin token', async () => {
+    isValidTwilioRequest.mockReturnValue(false);
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
+    });
+    setupThread({ ...baseThread });
+    const res = await request(app).post('/api/sms-reply').type('form')
+      .set('x-debug-token', 'wrong-token')
+      .send({ From: '+15551234567', Body: 'Monday works!' });
+    expect(res.text).toBe('<Response></Response>');
+    expect(getPhoneIndex).not.toHaveBeenCalled();
+  });
+
+  it('rejects the request when demo mode is on and the token is only provided as a query param', async () => {
+    isValidTwilioRequest.mockReturnValue(false);
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
+    });
+    setupThread({ ...baseThread });
+    const res = await request(app)
+      .post(`/api/sms-reply?token=test-debug-token`)
+      .type('form')
+      .send({ From: '+15551234567', Body: 'Monday works!' });
+    expect(res.text).toBe('<Response></Response>');
+    expect(getPhoneIndex).not.toHaveBeenCalled();
+  });
+
+  it('accepts the request without a Twilio signature when demo mode is on and a valid admin token is provided', async () => {
+    isValidTwilioRequest.mockReturnValue(false);
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: true
+    });
+    setupThread({ ...baseThread });
+    getNextReply.mockResolvedValue('Sure thing!');
+    const res = await request(app).post('/api/sms-reply').type('form')
+      .set('x-debug-token', 'test-debug-token')
+      .send({ From: '+15551234567', Body: 'Monday works!' });
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Sure thing!');
   });
 });
 

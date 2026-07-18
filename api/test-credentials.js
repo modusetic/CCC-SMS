@@ -1,14 +1,13 @@
 const express = require('express');
 const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
+const { requireAdminToken } = require('../lib/auth');
 
 const app = express();
 
 app.get('/api/test-credentials', async (req, res) => {
-  // Gate on DEBUG_TOKEN when set — same pattern as /api/debug-thread.
-  if (process.env.DEBUG_TOKEN && req.query.token !== process.env.DEBUG_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  // Fail-closed: same pattern as /api/debug-thread (see lib/auth.js).
+  if (!requireAdminToken(req, res)) return;
 
   const results = {};
 

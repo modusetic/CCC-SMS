@@ -1189,6 +1189,33 @@
     toast.style.display = 'block';
   }
 
+  // ── Admin auth ────────────────────────────────────────────────────────────
+  // This page is an operator console, not a public-facing surface — endpoints
+  // that expose conversation PII or change AI behavior require an admin token.
+  // Entered once per browser tab and cached in sessionStorage (never persisted
+  // to disk or sent anywhere except as the x-debug-token header below).
+  function promptForAdminToken() {
+    const token = window.prompt('Enter admin token:') || '';
+    if (token) sessionStorage.setItem('adminToken', token);
+    return token;
+  }
+
+  // promptOnAuth: false skips the blocking prompt() on 401 — used for the
+  // cosmetic init check below so page load never interrupts the user.
+  async function adminFetch(url, { promptOnAuth = true, ...options } = {}) {
+    const withToken = (token) => ({
+      ...options,
+      headers: { ...(options.headers || {}), 'x-debug-token': token }
+    });
+    let res = await fetch(url, withToken(sessionStorage.getItem('adminToken') || ''));
+    if (res.status === 401 && promptOnAuth) {
+      sessionStorage.removeItem('adminToken');
+      const token = promptForAdminToken();
+      if (token) res = await fetch(url, withToken(token));
+    }
+    return res;
+  }
+
   function detectTimezone() {
     const sel = document.getElementById('timezone');
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -1329,7 +1356,7 @@
       const url = currentThreadId
         ? `/api/conversation?threadId=${encodeURIComponent(currentThreadId)}`
         : `/api/conversation?phone=${encodeURIComponent(currentContactPhone)}`;
-      const res = await fetch(url);
+      const res = await adminFetch(url);
       document.getElementById('pollError').classList.remove('visible');
 
       if (res.status === 404) {
@@ -1394,7 +1421,7 @@
     btnEl.disabled = true;
     try {
       const params = new URLSearchParams({ From: fromPhone, Body: body });
-      await fetch('/api/sms-reply', {
+      await adminFetch('/api/sms-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString()
@@ -1432,7 +1459,7 @@
 
   async function loadSettings() {
     try {
-      const res = await fetch('/api/settings');
+      const res = await adminFetch('/api/settings');
       if (!res.ok) return;
       const s = await res.json();
       document.getElementById('s_assistantName').value       = s.assistantName      ?? '';
@@ -1467,7 +1494,7 @@
       if (!body.assistantName) { showToast('Assistant name cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
       if (!body.holdingMessage) { showToast('Holding message cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
       if (!body.confirmationMessage) { showToast('Confirmation message cannot be empty.', 'error'); btn.disabled = false; btn.textContent = 'Save settings'; return; }
-      const res = await fetch('/api/settings', {
+      const res = await adminFetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -1521,7 +1548,7 @@
   // ── Init: fetch settings to show demo banner and prep demo inputs ─────────
   (async function () {
     try {
-      const res = await fetch('/api/settings');
+      const res = await adminFetch('/api/settings', { promptOnAuth: false });
       if (!res.ok) return;
       const s = await res.json();
       demoModeActive = s.demoMode ?? false;

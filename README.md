@@ -35,6 +35,7 @@ The full list of required variables:
 | `GMAIL_APP_PASSWORD` | Google Account → App Passwords |
 | `KV_REST_API_URL` | Auto-injected by Vercel Upstash integration |
 | `KV_REST_API_TOKEN` | Auto-injected by Vercel Upstash integration |
+| `DEBUG_TOKEN` | Generate a long random value, e.g. `openssl rand -hex 32` |
 
 For local development, copy `.env.example` to `.env.local` and fill in each value:
 
@@ -85,6 +86,14 @@ This app uses Upstash Redis (via the `@upstash/redis` package) for conversation 
 1. Go to Google AI Studio (aistudio.google.com)
 2. Create an API key (free tier is sufficient)
 3. Set `GEMINI_API_KEY`
+
+## Security
+
+- **`DEBUG_TOKEN` is required.** It gates `/api/conversation`, `/api/settings`, `/api/debug-thread`, and `/api/test-credentials` — all of these expose PII (names, phone numbers, conversation content) or let you change AI/SMS behavior. Without it set, those endpoints reject every request (fail-closed).
+- The operator UI (`public/index.html`) will prompt you for this token the first time it needs to call one of those endpoints, and caches it in `sessionStorage` for the rest of the browser tab session — it's never written to disk.
+- Pass the token as the `x-debug-token` header, or `?token=` on `/api/debug-thread` and `/api/test-credentials` for quick manual checks in a browser URL bar.
+- `/api/sms-reply` (the Twilio webhook) verifies the `X-Twilio-Signature` header on every request using `TWILIO_AUTH_TOKEN`, so only genuine Twilio requests can drive a scheduling thread. The one exception is the UI's demo-mode reply simulator, which is only accepted when `demoMode` is enabled in settings **and** a valid `DEBUG_TOKEN` is presented.
+- `/api/initiate` has no auth — it's meant to be called by trusted internal systems (or the operator UI). Put it behind your own network/API-gateway controls if it will be reachable from an untrusted network.
 
 ## Local Development with ngrok
 
