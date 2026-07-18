@@ -86,10 +86,26 @@ describe('saveSettings', () => {
     await expect(saveSettings({ demoMode: 'yes' }))
       .rejects.toThrow(/demoMode/);
   });
+
+  it('saves autoConfirmPreApprovedTimes boolean and returns it', async () => {
+    redis._mockGet.mockResolvedValue(null);
+    redis._mockSet.mockResolvedValue('OK');
+    const result = await saveSettings({ autoConfirmPreApprovedTimes: false });
+    expect(result.autoConfirmPreApprovedTimes).toBe(false);
+  });
+
+  it('throws validation error when autoConfirmPreApprovedTimes is not a boolean', async () => {
+    await expect(saveSettings({ autoConfirmPreApprovedTimes: 'yes' }))
+      .rejects.toThrow(/autoConfirmPreApprovedTimes/);
+  });
 });
 
 describe('DEFAULTS', () => {
   it('demoMode defaults to false', () => {
     expect(DEFAULTS.demoMode).toBe(false);
+  });
+
+  it('autoConfirmPreApprovedTimes defaults to true', () => {
+    expect(DEFAULTS.autoConfirmPreApprovedTimes).toBe(true);
   });
 });
