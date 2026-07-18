@@ -789,6 +789,27 @@ describe('confirmedDatetime and rejectedTimes tracking', () => {
     expect(saved.rejectedTimes).toContain('Friday May 22 at 2pm');
   });
 
+  it('clears organizerPreApprovedTime when organizer rejects a counter-proposal, since the new message supersedes any prior pre-approval', async () => {
+    saveThreadById.mockClear();
+    const pendingThread = {
+      ...baseThread,
+      waitingForOrganizerApproval: true,
+      pendingContactSuggestion: 'Friday May 22 at 2pm',
+      pendingContactDatetime: '2026-05-22T14:00:00',
+      rejectedTimes: [],
+      organizerPreApprovedTime: '4:30 PM'
+    };
+    setupThread(pendingThread);
+    getOrganizerApprovalDecision.mockResolvedValue({
+      approved: false,
+      contactMsg: 'Alice suggests Monday at 3pm instead.',
+      organizerAck: "Got it, forwarding."
+    });
+    await post({ From: '+15550009999', Body: 'Not Friday, and 4:30 doesn\'t work anymore either — try Monday at 3pm' });
+    const saved = saveThreadById.mock.calls[0][1];
+    expect(saved.organizerPreApprovedTime).toBeNull();
+  });
+
   it('updates lastActivityAt on saveBoth', async () => {
     saveThreadById.mockClear();
     setupThread({ ...baseThread });
@@ -1017,6 +1038,15 @@ describe('auto-confirm on pre-approved exact time', () => {
     setupThread({ ...baseThread, organizerPreApprovedTime: null });
     getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
     await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
+    expect(saved.waitingForOrganizerApproval).toBe(true);
+    expect(bookCalendarEvent).not.toHaveBeenCalled();
+  });
+
+  it('falls back to asking the organizer when Gemini spuriously reports a match but no pre-approval is on the thread', async () => {
+    setupThread({ ...baseThread, organizerPreApprovedTime: null });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-07-18T16:30:00","matchesOrganizerPreApproval":true}');
+    await post({ From: '+15551234567', Body: 'yes' });
     const saved = saveThreadById.mock.calls.slice(-1)[0][1];
     expect(saved.waitingForOrganizerApproval).toBe(true);
     expect(bookCalendarEvent).not.toHaveBeenCalled();

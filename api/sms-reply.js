@@ -280,7 +280,8 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
 
       const autoConfirmEligible = Boolean(thread.organizerPhone)
         && settings.autoConfirmPreApprovedTimes === true
-        && parsed.matchesOrganizerPreApproval === true;
+        && parsed.matchesOrganizerPreApproval === true
+        && Boolean(thread.organizerPreApprovedTime);
 
       if (thread.organizerPhone && !autoConfirmEligible) {
         // Require explicit organizer sign-off before finalizing, unless the organizer
@@ -455,6 +456,9 @@ async function handleOrganizerReply(thread, incomingMessage, res, settings) {
       thread.pendingContactSuggestion = null;
       thread.pendingContactDatetime = null;
       thread.directorMessages = [...(thread.directorMessages || []), incomingMessage];
+      // A new organizer message always supersedes any prior pre-approval — the organizer
+      // may be withdrawing an earlier OK in the same breath as rejecting this suggestion.
+      thread.organizerPreApprovedTime = null;
 
       const contactMsg = truncate(decision.contactMsg, settings.maxMessageLength);
       const orgAck = truncate(decision.organizerAck, settings.maxMessageLength);
