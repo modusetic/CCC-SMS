@@ -142,6 +142,22 @@ describe('getNextReply', () => {
     const reply = await getNextReply(mockThread, 'Monday at 2pm');
     expect(reply).toBe('Sounds great!');
   });
+
+  it('includes organizerPreApprovedTime in system prompt when set on the thread', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    const threadWithPreApproval = { ...mockThread, organizerPreApprovedTime: '4:30 PM' };
+    await getNextReply(threadWithPreApproval, '4:30 works!');
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).toContain('4:30 PM');
+    expect(systemInstruction).toContain('matchesOrganizerPreApproval');
+  });
+
+  it('omits matchesOrganizerPreApproval instructions when organizerPreApprovedTime is not set', async () => {
+    mockSendMessage.mockResolvedValue({ response: { text: () => 'Confirmed!' } });
+    await getNextReply(mockThread, 'Monday works!');
+    const { systemInstruction } = mockGetGenerativeModel.mock.calls[0][0];
+    expect(systemInstruction).not.toContain('matchesOrganizerPreApproval');
+  });
 });
 
 describe('getOrganizerInitialContactMessage', () => {
