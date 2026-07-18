@@ -270,6 +270,26 @@ describe('POST /api/initiate — new schema fields', () => {
     const saved = saveThreadById.mock.calls[0][1];
     expect(saved.offeredTimes).toEqual([]);
   });
+
+  it('sets organizerPreApprovedTime when exactly one backup time is given', async () => {
+    const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wednesday at 3pm'] };
+    await request(app).post('/api/initiate').send(body);
+    const saved = saveThreadById.mock.calls[0][1];
+    expect(saved.organizerPreApprovedTime).toBe('Wednesday at 3pm');
+  });
+
+  it('leaves organizerPreApprovedTime null when multiple backup times are given', async () => {
+    const body = { ...base, organizerPhone: '+15550009999', directorAlternatives: ['Wednesday at 3pm', 'Thursday at 11am'] };
+    await request(app).post('/api/initiate').send(body);
+    const saved = saveThreadById.mock.calls[0][1];
+    expect(saved.organizerPreApprovedTime).toBeNull();
+  });
+
+  it('leaves organizerPreApprovedTime null when no backup times are given', async () => {
+    await request(app).post('/api/initiate').send(base);
+    const saved = saveThreadById.mock.calls[0][1];
+    expect(saved.organizerPreApprovedTime).toBeNull();
+  });
 });
 
 describe('Demo Mode — SMS suppression', () => {

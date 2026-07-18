@@ -85,6 +85,7 @@ app.post('/api/initiate', async (req, res) => {
     organizerPhone: normalizedOrganizerPhone,
     proposedTimes,
     directorAlternatives: backupTimes,
+    organizerPreApprovedTime: backupTimes.length === 1 ? backupTimes[0] : null,
     directorMessages: [],
     rejectedTimes: [],
     offeredTimes: [],
