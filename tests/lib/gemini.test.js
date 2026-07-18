@@ -146,7 +146,9 @@ describe('getNextReply', () => {
 
 describe('getOrganizerInitialContactMessage', () => {
   it('includes the original proposed times in the prompt', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday. Which works?" } });
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hey Bob! Alice wants to meet — Monday at 2pm or Tuesday. Which works?","exactApprovedTime":null}' }
+    });
     await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday at 2pm', 'Tuesday at 10am'], 'Sounds good, go ahead');
     const call = mockGenerateContent.mock.calls[0][0];
     expect(call).toContain('Monday at 2pm');
@@ -154,16 +156,43 @@ describe('getOrganizerInitialContactMessage', () => {
   });
 
   it('includes the full organizer message in the prompt', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead — does that work?" } });
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Alice can do 3pm instead — does that work?","exactApprovedTime":"3pm"}' }
+    });
     await getOrganizerInitialContactMessage('Alice', 'Bob', ['1pm'], "I can't at 1pm, but 3pm works");
     const call = mockGenerateContent.mock.calls[0][0];
     expect(call).toContain("I can't at 1pm, but 3pm works");
   });
 
-  it('returns the generated reply', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Ready to schedule with Alice?" } });
+  it('returns the generated contactMessage', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Ready to schedule with Alice?","exactApprovedTime":null}' }
+    });
     const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday'], 'Yes please');
-    expect(reply).toBe("Hi Bob! Ready to schedule with Alice?");
+    expect(reply.contactMessage).toBe("Hi Bob! Ready to schedule with Alice?");
+  });
+
+  it('returns exactApprovedTime when the organizer named exactly one specific time', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! 4:30 PM works for Alice — does that work for you too?","exactApprovedTime":"4:30 PM"}' }
+    });
+    const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['4:30 PM'], 'Yes, 4:30 works');
+    expect(reply.exactApprovedTime).toBe('4:30 PM');
+  });
+
+  it('returns null exactApprovedTime when the organizer approved multiple times', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Both Monday 2pm and Tuesday 10am work for Alice — which works for you?","exactApprovedTime":null}' }
+    });
+    const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday at 2pm', 'Tuesday at 10am'], 'Both work');
+    expect(reply.exactApprovedTime).toBeNull();
+  });
+
+  it('falls back to raw text as contactMessage with null exactApprovedTime when Gemini returns invalid JSON', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Sorry, I cannot help with that.' } });
+    const reply = await getOrganizerInitialContactMessage('Alice', 'Bob', ['Monday'], 'Yes please');
+    expect(reply.contactMessage).toBe('Sorry, I cannot help with that.');
+    expect(reply.exactApprovedTime).toBeNull();
   });
 });
 
@@ -228,21 +257,48 @@ describe('getOrganizerApprovalDecision', () => {
 
 describe('getOrganizerUpdateReply', () => {
   it('calls generateContent with organizer update context', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead. Does that work?" } });
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Alice can do 3pm instead. Does that work?","exactApprovedTime":"3pm"}' }
+    });
     await getOrganizerUpdateReply('Alice', 'Bob', "I can't at 1pm, but 3pm works");
     expect(mockGenerateContent).toHaveBeenCalledWith(
       expect.stringContaining("I can't at 1pm, but 3pm works")
     );
   });
 
-  it('returns the Gemini-generated message', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => "Hi Bob! Alice can do 3pm instead. Does that work?" } });
+  it('returns the Gemini-generated contactMessage', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Alice can do 3pm instead. Does that work?","exactApprovedTime":"3pm"}' }
+    });
     const reply = await getOrganizerUpdateReply('Alice', 'Bob', "3pm works instead");
-    expect(reply).toBe("Hi Bob! Alice can do 3pm instead. Does that work?");
+    expect(reply.contactMessage).toBe("Hi Bob! Alice can do 3pm instead. Does that work?");
+  });
+
+  it('returns exactApprovedTime when the organizer named exactly one specific time', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Alice can do 3pm instead. Does that work?","exactApprovedTime":"3pm"}' }
+    });
+    const reply = await getOrganizerUpdateReply('Alice', 'Bob', '3pm works instead');
+    expect(reply.exactApprovedTime).toBe('3pm');
+  });
+
+  it('returns null exactApprovedTime when the update is vague', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '{"contactMessage":"Hi Bob! Alice has some new availability — want to hear the options?","exactApprovedTime":null}' }
+    });
+    const reply = await getOrganizerUpdateReply('Alice', 'Bob', "I'm generally free most afternoons");
+    expect(reply.exactApprovedTime).toBeNull();
+  });
+
+  it('falls back to raw text as contactMessage with null exactApprovedTime when Gemini returns invalid JSON', async () => {
+    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Not JSON at all' } });
+    const reply = await getOrganizerUpdateReply('Alice', 'Bob', 'Try 4pm');
+    expect(reply.contactMessage).toBe('Not JSON at all');
+    expect(reply.exactApprovedTime).toBeNull();
   });
 
   it('uses gemini-2.5-flash with organizer name in system instruction', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi!' } });
+    mockGenerateContent.mockResolvedValue({ response: { text: () => '{"contactMessage":"Hi!","exactApprovedTime":null}' } });
     await getOrganizerUpdateReply('Alice', 'Bob', 'Try 4pm');
     expect(mockGetGenerativeModel).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -253,7 +309,7 @@ describe('getOrganizerUpdateReply', () => {
   });
 
   it('includes offeredTimes, directorMessages, and lastContactMsg from context in the prompt', async () => {
-    mockGenerateContent.mockResolvedValue({ response: { text: () => 'Hi Bob!' } });
+    mockGenerateContent.mockResolvedValue({ response: { text: () => '{"contactMessage":"Hi Bob!","exactApprovedTime":null}' } });
     await getOrganizerUpdateReply('Alice', 'Bob', 'Try 4pm', {}, {
       offeredTimes: ['Monday at 2pm', 'Tuesday at 10am'],
       directorMessages: ['Wednesday at 3pm'],
