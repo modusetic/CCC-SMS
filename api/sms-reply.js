@@ -278,9 +278,13 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
       thread.attempts += 1;
       thread.conversationHistory.push({ role: 'user', content: incomingMessage });
 
-      if (thread.organizerPhone) {
-        // Always require explicit organizer sign-off before finalizing, regardless of
-        // how availability was communicated (specific times or an open window).
+      const autoConfirmEligible = Boolean(thread.organizerPhone)
+        && settings.autoConfirmPreApprovedTimes === true
+        && parsed.matchesOrganizerPreApproval === true;
+
+      if (thread.organizerPhone && !autoConfirmEligible) {
+        // Require explicit organizer sign-off before finalizing, unless the organizer
+        // already unambiguously pre-approved this exact time (see autoConfirmEligible above).
         thread.waitingForOrganizerApproval = true;
         thread.pendingContactSuggestion = formatConfirmedTime(parsed.datetime);
         thread.pendingContactDatetime = parsed.datetime;
@@ -301,7 +305,7 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
         return res.send(twimlReply(holdMsg));
       }
 
-      // No organizer phone — confirm immediately
+      // No organizer phone, or organizer already pre-approved this exact time — confirm immediately
       thread.status = 'confirmed';
       thread.confirmedDatetime = parsed.datetime;
 
@@ -321,7 +325,19 @@ async function handleContactReply(thread, incomingMessage, res, settings) {
         settings.maxMessageLength
       );
       thread.conversationHistory.push({ role: 'model', content: confirmMsg });
-      await saveBoth(thread);
+
+      if (autoConfirmEligible) {
+        const orgFyi = orgPrelude(thread.contactName, `auto-confirmed: ${formatConfirmedTime(parsed.datetime)}`) +
+          `${thread.contactName} confirmed ${formatConfirmedTime(parsed.datetime)} — already booked per your earlier OK, no action needed!`;
+        thread.organizerConversationHistory = thread.organizerConversationHistory || [];
+        thread.organizerConversationHistory.push({ role: 'model', content: orgFyi });
+        await saveBoth(thread);
+        await demoSendSms(thread.organizerPhone, truncate(orgFyi, settings.maxMessageLength), settings.demoMode);
+        console.log(`[sms-reply] auto-confirmed pre-approved time for thread ${thread.threadId}, organizer notified`);
+      } else {
+        await saveBoth(thread);
+      }
+
       return res.send(twimlReply(confirmMsg));
 
     } else if (parsed?.status === 'counter-proposal' && parsed?.suggestedTime) {

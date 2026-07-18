@@ -83,7 +83,8 @@ beforeEach(() => {
     maxExchanges: 6,
     holdingMessage: "Thanks for reaching out! We'll be in touch soon to confirm your appointment.",
     confirmationMessage: "Your meeting with {organizerName} is confirmed for {confirmedDatetime}! You'll receive details soon.",
-    demoMode: false
+    demoMode: false,
+    autoConfirmPreApprovedTimes: true
   });
   // Default to a genuine Twilio request so existing tests exercise business logic,
   // not the auth gate — see the dedicated 'Twilio signature verification' describe below.
@@ -974,5 +975,50 @@ describe('SMS template substitution', () => {
     const res = await post({ From: '+15551234567', Body: 'Hello' });
     expect(res.text).toContain('Bob');
     expect(res.text).toContain('Alice');
+  });
+});
+
+describe('auto-confirm on pre-approved exact time', () => {
+  it('books immediately and sends organizer an FYI (not a request) when the setting is on and Gemini reports a match', async () => {
+    setupThread({ ...baseThread, organizerPreApprovedTime: '4:30 PM' });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-07-18T16:30:00","matchesOrganizerPreApproval":true}');
+    const res = await post({ From: '+15551234567', Body: 'yes' });
+    expect(bookCalendarEvent).toHaveBeenCalledWith('2026-07-18T16:30:00', 'Bob', 'alice@example.com', 'America/Chicago');
+    expect(sendOrganizerEmail).toHaveBeenCalled();
+    expect(res.text).toContain('confirmed for');
+    expect(sendSms).toHaveBeenCalledWith('+15550009999', expect.stringContaining('no action needed'));
+    expect(sendSms).not.toHaveBeenCalledWith('+15550009999', expect.stringContaining('Reply YES'));
+  });
+
+  it('does not wait for organizer approval when auto-confirming', async () => {
+    setupThread({ ...baseThread, organizerPreApprovedTime: '4:30 PM' });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-07-18T16:30:00","matchesOrganizerPreApproval":true}');
+    await post({ From: '+15551234567', Body: 'yes' });
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
+    expect(saved.status).toBe('confirmed');
+    expect(saved.waitingForOrganizerApproval).toBe(false);
+  });
+
+  it('falls back to asking the organizer when the setting is off, even if Gemini reports a match', async () => {
+    getSettings.mockResolvedValue({
+      assistantName: 'Alex', tone: 'Be polite.', maxMessageLength: 160, maxExchanges: 6,
+      holdingMessage: "We'll be in touch.", confirmationMessage: 'Confirmed!', demoMode: false,
+      autoConfirmPreApprovedTimes: false
+    });
+    setupThread({ ...baseThread, organizerPreApprovedTime: '4:30 PM' });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-07-18T16:30:00","matchesOrganizerPreApproval":true}');
+    await post({ From: '+15551234567', Body: 'yes' });
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
+    expect(saved.waitingForOrganizerApproval).toBe(true);
+    expect(bookCalendarEvent).not.toHaveBeenCalled();
+  });
+
+  it('asks the organizer to confirm when Gemini does not report a match, even with the setting on', async () => {
+    setupThread({ ...baseThread, organizerPreApprovedTime: null });
+    getNextReply.mockResolvedValue('{"status":"confirmed","datetime":"2026-05-12T14:00:00"}');
+    await post({ From: '+15551234567', Body: 'Monday at 2pm works!' });
+    const saved = saveThreadById.mock.calls.slice(-1)[0][1];
+    expect(saved.waitingForOrganizerApproval).toBe(true);
+    expect(bookCalendarEvent).not.toHaveBeenCalled();
   });
 });
